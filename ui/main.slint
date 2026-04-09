@@ -1,0 +1,344 @@
+import { FadeTheme } from "style.slint";
+import { Button, VerticalBox, HorizontalBox, TabWidget, LineEdit, ComboBox, CheckBox, Slider, ScrollView, StandardListView, GridBox } from "std-widgets.slint";
+
+// Data models passed between Rust and Slint
+export struct AppRuleModel {
+    process: string,
+    timeout-mins: int,
+    action: string,    // "minimize" or "close"
+    enabled: bool,
+}
+
+export struct ActiveWindowModel {
+    process: string,
+    title: string,
+    idle-secs: int,
+    managed: bool,
+}
+
+export struct BucketModel {
+    name: string,
+    timeout-mins: int,
+    action: string,
+    enabled: bool,
+}
+
+export component SettingsWindow inherits Window {
+    title: "Fade — Settings";
+    width: 700px;
+    height: 500px;
+    background: FadeTheme.bg;
+
+    // Properties bound from Rust
+    in property <[AppRuleModel]> app-rules;
+    in property <[ActiveWindowModel]> active-windows;
+    in property <[BucketModel]> buckets;
+    in property <int> polling-interval-secs: 30;
+    in property <bool> auto-start: false;
+    in-out property <bool> paused: false;
+
+    // Callbacks to Rust
+    callback save-config();
+    callback add-rule(string /* process */);
+    callback remove-rule(int /* index */);
+    callback toggle-rule(int /* index */, bool /* enabled */);
+    callback update-rule-timeout(int /* index */, int /* mins */);
+    callback update-rule-action(int /* index */, string /* action */);
+    callback hide-process(string /* process */);
+    callback toggle-bucket(int /* index */, bool /* enabled */);
+    callback update-bucket-timeout(int /* index */, int /* mins */);
+    callback update-bucket-action(int /* index */, string /* action */);
+    callback set-polling-interval(int /* secs */);
+    callback set-auto-start(bool);
+
+    TabWidget {
+        Tab {
+            title: "Rules";
+            VerticalBox {
+                padding: FadeTheme.spacing * 2;
+                spacing: FadeTheme.spacing;
+
+                Text {
+                    text: "Managed Applications";
+                    color: FadeTheme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Apps listed here will be minimized or closed after their idle timeout.";
+                    color: FadeTheme.text-dim;
+                    font-size: 12px;
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalBox {
+                        spacing: 4px;
+                        for rule[idx] in root.app-rules: Rectangle {
+                            height: 40px;
+                            border-radius: FadeTheme.radius;
+                            background: FadeTheme.surface;
+
+                            HorizontalBox {
+                                padding: FadeTheme.spacing;
+                                spacing: FadeTheme.spacing;
+                                alignment: center;
+
+                                CheckBox {
+                                    checked: rule.enabled;
+                                    toggled => { root.toggle-rule(idx, self.checked); }
+                                }
+                                Text {
+                                    text: rule.process;
+                                    color: FadeTheme.text;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                Text {
+                                    text: rule.timeout-mins + " min";
+                                    color: FadeTheme.text-dim;
+                                    vertical-alignment: center;
+                                    width: 60px;
+                                }
+                                Slider {
+                                    width: 120px;
+                                    minimum: 1;
+                                    maximum: 120;
+                                    value: rule.timeout-mins;
+                                    changed(val) => { root.update-rule-timeout(idx, val); }
+                                }
+                                ComboBox {
+                                    width: 100px;
+                                    model: ["minimize", "close"];
+                                    current-value: rule.action;
+                                    selected(val) => { root.update-rule-action(idx, val); }
+                                }
+                                Button {
+                                    text: "X";
+                                    clicked => { root.remove-rule(idx); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: FadeTheme.spacing;
+                    alignment: end;
+                    add-input := LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "process.exe";
+                    }
+                    Button {
+                        text: "Add Rule";
+                        clicked => {
+                            root.add-rule(add-input.text);
+                            add-input.text = "";
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "Active Windows";
+            VerticalBox {
+                padding: FadeTheme.spacing * 2;
+                spacing: FadeTheme.spacing;
+
+                Text {
+                    text: "Currently Open Windows";
+                    color: FadeTheme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Sorted by idle time (longest first). Right-click to add a rule or hide.";
+                    color: FadeTheme.text-dim;
+                    font-size: 12px;
+                }
+
+                // Header row
+                Rectangle {
+                    height: 30px;
+                    background: FadeTheme.surface;
+                    border-radius: FadeTheme.radius;
+                    HorizontalBox {
+                        padding: FadeTheme.spacing;
+                        Text { text: "Process"; color: FadeTheme.accent; width: 150px; font-size: 12px; font-weight: 600; }
+                        Text { text: "Title"; color: FadeTheme.accent; horizontal-stretch: 1; font-size: 12px; font-weight: 600; }
+                        Text { text: "Idle"; color: FadeTheme.accent; width: 80px; font-size: 12px; font-weight: 600; }
+                        Text { text: "Status"; color: FadeTheme.accent; width: 80px; font-size: 12px; font-weight: 600; }
+                    }
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalBox {
+                        spacing: 2px;
+                        for win[idx] in root.active-windows: Rectangle {
+                            height: 32px;
+                            border-radius: FadeTheme.radius;
+                            background: Math.mod(idx, 2) == 0 ? FadeTheme.surface : FadeTheme.bg;
+
+                            HorizontalBox {
+                                padding: FadeTheme.spacing;
+                                Text {
+                                    text: win.process;
+                                    color: FadeTheme.text;
+                                    width: 150px;
+                                    overflow: elide;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: win.title;
+                                    color: FadeTheme.text-dim;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: win.idle-secs >= 60 ? Math.floor(win.idle-secs / 60) + "m" : win.idle-secs + "s";
+                                    color: win.idle-secs > 300 ? FadeTheme.warning : FadeTheme.text-dim;
+                                    width: 80px;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: win.managed ? "managed" : "—";
+                                    color: win.managed ? FadeTheme.success : FadeTheme.text-dim;
+                                    width: 80px;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            ta := TouchArea {
+                                mouse-cursor: pointer;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "Buckets";
+            VerticalBox {
+                padding: FadeTheme.spacing * 2;
+                spacing: FadeTheme.spacing;
+
+                Text {
+                    text: "App Groups";
+                    color: FadeTheme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Enable a bucket to manage all its installed apps with one setting.";
+                    color: FadeTheme.text-dim;
+                    font-size: 12px;
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalBox {
+                        spacing: FadeTheme.spacing;
+                        for bucket[idx] in root.buckets: Rectangle {
+                            height: 50px;
+                            border-radius: FadeTheme.radius;
+                            background: FadeTheme.surface;
+
+                            HorizontalBox {
+                                padding: FadeTheme.spacing;
+                                spacing: FadeTheme.spacing;
+                                alignment: center;
+
+                                CheckBox {
+                                    checked: bucket.enabled;
+                                    toggled => { root.toggle-bucket(idx, self.checked); }
+                                }
+                                Text {
+                                    text: bucket.name;
+                                    color: FadeTheme.text;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                    width: 150px;
+                                }
+                                Text {
+                                    text: bucket.timeout-mins + " min";
+                                    color: FadeTheme.text-dim;
+                                    vertical-alignment: center;
+                                    width: 60px;
+                                }
+                                Slider {
+                                    width: 150px;
+                                    minimum: 1;
+                                    maximum: 120;
+                                    value: bucket.timeout-mins;
+                                    changed(val) => { root.update-bucket-timeout(idx, val); }
+                                }
+                                ComboBox {
+                                    width: 100px;
+                                    model: ["minimize", "close"];
+                                    current-value: bucket.action;
+                                    selected(val) => { root.update-bucket-action(idx, val); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "General";
+            VerticalBox {
+                padding: FadeTheme.spacing * 2;
+                spacing: FadeTheme.spacing * 2;
+
+                Text {
+                    text: "General Settings";
+                    color: FadeTheme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+
+                HorizontalBox {
+                    spacing: FadeTheme.spacing;
+                    Text { text: "Polling interval:"; color: FadeTheme.text; vertical-alignment: center; width: 150px; }
+                    ComboBox {
+                        width: 120px;
+                        model: ["15 sec", "30 sec", "60 sec"];
+                        current-value: root.polling-interval-secs == 15 ? "15 sec" : root.polling-interval-secs == 60 ? "60 sec" : "30 sec";
+                        selected(val) => {
+                            if (val == "15 sec") { root.set-polling-interval(15); }
+                            if (val == "30 sec") { root.set-polling-interval(30); }
+                            if (val == "60 sec") { root.set-polling-interval(60); }
+                        }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: FadeTheme.spacing;
+                    Text { text: "Start with Windows:"; color: FadeTheme.text; vertical-alignment: center; width: 150px; }
+                    CheckBox {
+                        checked: root.auto-start;
+                        toggled => { root.set-auto-start(self.checked); }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                Text {
+                    text: "Fade v0.1.0";
+                    color: FadeTheme.text-dim;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+}
