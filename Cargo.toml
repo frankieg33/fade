@@ -15,7 +15,7 @@ env_logger = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 tray-icon = "0.19"
-muda = "0.16"
+muda = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies.windows]
