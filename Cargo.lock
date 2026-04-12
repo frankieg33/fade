@@ -1300,7 +1300,7 @@ dependencies = [
  "env_logger",
  "image",
  "log",
- "muda 0.16.1",
+ "muda 0.15.3",
  "serde",
  "slint",
  "slint-build",
@@ -2996,27 +2996,6 @@ dependencies = [
  "once_cell",
  "png 0.17.16",
  "thiserror 1.0.69",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "muda"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4de14a9b5d569ca68d7c891d613b390cf5ab4f851c77aaa2f9e435555d3d9492"
-dependencies = [
- "crossbeam-channel",
- "dpi",
- "gtk",
- "keyboard-types",
- "libxdo",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "once_cell",
- "png 0.17.16",
- "thiserror 2.0.18",
  "windows-sys 0.59.0",
 ]
 

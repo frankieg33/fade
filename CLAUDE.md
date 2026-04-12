@@ -9,13 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Build (debug)
-cargo build
+# Build Windows binary from WSL (debug)
+cargo build --target x86_64-pc-windows-gnu
 
-# Build (release — uses aggressive size optimizations: opt-level=z, LTO, strip)
-cargo build --release
+# Build Windows binary from WSL (release — opt-level=z, LTO, strip)
+cargo build --release --target x86_64-pc-windows-gnu
 
-# Run all tests (cross-platform — tests compile and run on Linux/macOS via the stub WindowApi)
+# Run all tests (Linux-native — tests compile and run via the stub WindowApi)
 cargo test
 
 # Run a single test
@@ -27,8 +27,15 @@ cargo test --test '*' -- monitor::tests
 # Check without building
 cargo check
 
-# Run with logging
+# Run with logging (Windows only — requires running the .exe on Windows)
 RUST_LOG=debug cargo run
+```
+
+### WSL Prerequisites
+
+```bash
+sudo apt install mingw-w64 pkg-config libfontconfig1-dev
+rustup target add x86_64-pc-windows-gnu
 ```
 
 ## Architecture
