@@ -28,6 +28,8 @@ fn main() {
     let should_stop = Arc::new(AtomicBool::new(false));
     let snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>> =
         Arc::new(Mutex::new(Vec::new()));
+    let foreground_timestamps: monitor::ForegroundTimestamps =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
     let window_visible = Arc::new(AtomicBool::new(false));
 
     // Create Slint window (but don't show it yet)
@@ -134,15 +136,24 @@ fn main() {
         },
     );
 
+    // Install foreground event hook (updates timestamps in real-time via Win32 callback)
+    let _foreground_hook = match winapi::install_foreground_hook(foreground_timestamps.clone()) {
+        Ok(guard) => Some(guard),
+        Err(e) => {
+            log::warn!("Failed to install foreground hook, falling back to polling: {}", e);
+            None
+        }
+    };
+
     // Spawn monitor thread
     let monitor_config = config.clone();
     let monitor_paused = paused.clone();
     let monitor_stop = should_stop.clone();
     let monitor_snapshot = snapshot_buffer.clone();
+    let monitor_timestamps = foreground_timestamps.clone();
     let monitor_thread = std::thread::spawn(move || {
         let api = Win32Api::new();
-        let foreground_timestamps = Arc::new(Mutex::new(std::collections::HashMap::new()));
-        let mut monitor = Monitor::new(api, monitor_config, monitor_paused, monitor_snapshot, foreground_timestamps);
+        let mut monitor = Monitor::new(api, monitor_config, monitor_paused, monitor_snapshot, monitor_timestamps);
         monitor.run(monitor_stop);
     });
 
