@@ -31,7 +31,7 @@ pub struct Monitor<W: WindowApi> {
     config: Arc<RwLock<Config>>,
     paused: Arc<AtomicBool>,
     /// Last time each process (lowercase) was the foreground window.
-    last_foreground: HashMap<String, Instant>,
+    foreground_timestamps: ForegroundTimestamps,
     /// HWND lookup: process_name_lower -> vec of (hwnd, title)
     /// Updated each poll cycle from enumeration.
     current_windows: Vec<WindowEntry>,
@@ -50,12 +50,13 @@ impl<W: WindowApi> Monitor<W> {
         config: Arc<RwLock<Config>>,
         paused: Arc<AtomicBool>,
         snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+        foreground_timestamps: ForegroundTimestamps,
     ) -> Self {
         Self {
             api,
             config,
             paused,
-            last_foreground: HashMap::new(),
+            foreground_timestamps,
             current_windows: Vec::new(),
             cumulative_idle: HashMap::new(),
             snapshot_buffer,
@@ -95,11 +96,13 @@ impl<W: WindowApi> Monitor<W> {
             }
         }
         let mut newly_managed = HashSet::new();
-        for proc in &currently_managed {
-            if !self.previously_managed.contains(proc) {
-                // Newly managed — give it a fresh grace period
-                self.last_foreground.insert(proc.clone(), now);
-                newly_managed.insert(proc.clone());
+        {
+            let mut timestamps = self.foreground_timestamps.lock().unwrap();
+            for proc in &currently_managed {
+                if !self.previously_managed.contains(proc) {
+                    timestamps.insert(proc.clone(), now);
+                    newly_managed.insert(proc.clone());
+                }
             }
         }
         self.previously_managed = currently_managed;
@@ -108,7 +111,7 @@ impl<W: WindowApi> Monitor<W> {
         let foreground = self.api.get_foreground_process();
         if let Some(ref fg) = foreground {
             let fg_lower = fg.to_lowercase();
-            self.last_foreground.insert(fg_lower, now);
+            self.foreground_timestamps.lock().unwrap().insert(fg_lower, now);
         }
 
         // 2. Enumerate visible windows and store for GUI snapshot
@@ -129,6 +132,8 @@ impl<W: WindowApi> Monitor<W> {
         let mut actions: Vec<PendingAction> = Vec::new();
         let mut new_timestamps: Vec<(String, Instant)> = Vec::new();
         let mut cumulative_updates: Vec<String> = Vec::new();
+
+        let fg_snapshot = self.foreground_timestamps.lock().unwrap().clone();
 
         for entry in &self.current_windows {
             let proc_lower = entry.info.process_name.to_lowercase();
@@ -158,7 +163,7 @@ impl<W: WindowApi> Monitor<W> {
             };
 
             // Check idle time
-            let last_fg = self.last_foreground.get(&proc_lower).copied();
+            let last_fg = fg_snapshot.get(&proc_lower).copied();
             let idle_duration = match last_fg {
                 Some(t) => now.duration_since(t),
                 None => {
@@ -204,8 +209,11 @@ impl<W: WindowApi> Monitor<W> {
         }
 
         // Apply deferred mutations
-        for (proc, ts) in new_timestamps {
-            self.last_foreground.insert(proc, ts);
+        {
+            let mut timestamps = self.foreground_timestamps.lock().unwrap();
+            for (proc, ts) in new_timestamps {
+                timestamps.insert(proc, ts);
+            }
         }
         for proc in cumulative_updates {
             self.track_cumulative_idle(&proc, now);
@@ -244,6 +252,7 @@ impl<W: WindowApi> Monitor<W> {
         };
 
         let now = Instant::now();
+        let fg_snapshot = self.foreground_timestamps.lock().unwrap().clone();
         let mut snapshots: Vec<ActiveWindowSnapshot> = self
             .current_windows
             .iter()
@@ -251,8 +260,7 @@ impl<W: WindowApi> Monitor<W> {
             .filter(|e| !config.is_hidden(&e.info.process_name))
             .map(|e| {
                 let proc_lower = e.info.process_name.to_lowercase();
-                let idle_secs = self
-                    .last_foreground
+                let idle_secs = fg_snapshot
                     .get(&proc_lower)
                     .map(|t| now.duration_since(*t).as_secs())
                     .unwrap_or(0);
@@ -274,7 +282,8 @@ impl<W: WindowApi> Monitor<W> {
     }
 
     fn track_cumulative_idle(&mut self, process: &str, now: Instant) {
-        if let Some(last_fg) = self.last_foreground.get(process) {
+        let timestamps = self.foreground_timestamps.lock().unwrap();
+        if let Some(last_fg) = timestamps.get(process) {
             let idle = now.duration_since(*last_fg);
             let entry = self.cumulative_idle.entry(process.to_string()).or_default();
             *entry += idle;
@@ -343,14 +352,21 @@ mod tests {
 
     fn setup(
         config: Config,
-    ) -> (Monitor<MockWindowApi>, MockWindowApi, Arc<RwLock<Config>>, Arc<AtomicBool>) {
+    ) -> (Monitor<MockWindowApi>, MockWindowApi, Arc<RwLock<Config>>, Arc<AtomicBool>, ForegroundTimestamps) {
         let mock = MockWindowApi::new();
         let config = Arc::new(RwLock::new(config));
         let paused = Arc::new(AtomicBool::new(false));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
-        let monitor = Monitor::new(mock.clone(), config.clone(), paused.clone(), snapshot_buffer);
+        let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
+        let monitor = Monitor::new(
+            mock.clone(),
+            config.clone(),
+            paused.clone(),
+            snapshot_buffer,
+            foreground_timestamps.clone(),
+        );
         let mock_ref = mock.clone();
-        (monitor, mock_ref, config, paused)
+        (monitor, mock_ref, config, paused, foreground_timestamps)
     }
 
     #[test]
@@ -364,7 +380,7 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, _timestamps) = setup(config);
 
         mock.set_foreground(Some("chrome.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
@@ -386,7 +402,7 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         // First poll: notepad is foreground, sets timestamp
         mock.set_foreground(Some("notepad.exe"));
@@ -397,8 +413,8 @@ mod tests {
         // With timeout_mins=0, it should be acted on
         mock.set_foreground(Some("other.exe"));
         // Need to backdate the timestamp
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(1));
         monitor.poll();
 
@@ -418,15 +434,15 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("notepad.exe"));
         mock.set_windows(vec![make_entry(100, "notepad.exe", "Untitled")]);
         monitor.poll();
 
         mock.set_foreground(Some("other.exe"));
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(1));
         monitor.poll();
 
@@ -436,12 +452,12 @@ mod tests {
     #[test]
     fn test_unmanaged_process_never_acted_on() {
         let config = make_config(vec![], vec![]);
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "unmanaged.exe", "Something")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("unmanaged.exe".to_string(), Instant::now() - Duration::from_secs(9999));
         monitor.poll();
 
@@ -460,14 +476,14 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, paused) = setup(config);
+        let (mut monitor, mock, _, paused, timestamps) = setup(config);
 
         paused.store(true, Ordering::Relaxed);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
         monitor.poll();
 
@@ -485,13 +501,13 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         // Chrome goes idle
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(30));
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // 30s < 60s timeout
@@ -501,7 +517,7 @@ mod tests {
         monitor.poll();
 
         // Now check the timestamp was reset to ~now
-        let ts = monitor.last_foreground.get("chrome.exe").unwrap();
+        let ts = *timestamps.lock().unwrap().get("chrome.exe").unwrap();
         assert!(ts.elapsed().as_secs() < 2);
     }
 
@@ -516,12 +532,12 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
         monitor.poll();
 
@@ -540,15 +556,15 @@ mod tests {
                 enabled: true,
             }],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("chrome.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
         monitor.poll();
 
         mock.set_foreground(Some("other.exe"));
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(1));
         monitor.poll();
 
@@ -566,7 +582,7 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![WindowEntry {
@@ -580,8 +596,8 @@ mod tests {
                 own_pid: false,
             },
         }]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("dwm.exe".to_string(), Instant::now() - Duration::from_secs(9999));
         monitor.poll();
 
@@ -599,12 +615,12 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, config_arc, _) = setup(config);
+        let (mut monitor, mock, config_arc, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(60));
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // 60s < 999min
@@ -629,17 +645,17 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         // First time seeing notepad — should set timestamp, not act
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        // Do NOT pre-set last_foreground — this is first sighting
+        // Do NOT pre-set foreground_timestamps — this is first sighting
         monitor.poll();
 
         assert!(mock.get_minimized().is_empty());
         // Now the timestamp should be set
-        assert!(monitor.last_foreground.contains_key("notepad.exe"));
+        assert!(timestamps.lock().unwrap().contains_key("notepad.exe"));
     }
 
     #[test]
@@ -653,7 +669,7 @@ mod tests {
             }],
             vec![],
         );
-        let (mut monitor, mock, _, _) = setup(config);
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![
@@ -662,12 +678,11 @@ mod tests {
         ]);
 
         // Set different idle times
-        monitor
-            .last_foreground
-            .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(300));
-        monitor
-            .last_foreground
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(60));
+        {
+            let mut ts = timestamps.lock().unwrap();
+            ts.insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(300));
+            ts.insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(60));
+        }
 
         monitor.poll();
 
@@ -686,17 +701,19 @@ mod tests {
         let config_arc = Arc::new(RwLock::new(config));
         let paused = Arc::new(AtomicBool::new(false));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
+        let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
         let mut monitor = Monitor::new(
             mock.clone(),
             config_arc,
             paused,
             snapshot_buffer.clone(),
+            foreground_timestamps.clone(),
         );
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
-        monitor
-            .last_foreground
+        foreground_timestamps
+            .lock().unwrap()
             .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(10));
         monitor.poll();
 
@@ -712,11 +729,13 @@ mod tests {
         let config_arc = Arc::new(RwLock::new(config));
         let paused = Arc::new(AtomicBool::new(true));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
+        let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
         let mut monitor = Monitor::new(
             mock.clone(),
             config_arc,
             paused,
             snapshot_buffer.clone(),
+            foreground_timestamps,
         );
 
         mock.set_foreground(Some("other.exe"));
@@ -731,13 +750,13 @@ mod tests {
     fn test_newly_managed_process_gets_grace_period() {
         // Start with no rules — notepad is unmanaged
         let config = make_config(vec![], vec![]);
-        let (mut monitor, mock, config_arc, _) = setup(config);
+        let (mut monitor, mock, config_arc, _, timestamps) = setup(config);
 
         // notepad is open and was last in foreground a long time ago
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        monitor
-            .last_foreground
+        timestamps
+            .lock().unwrap()
             .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // unmanaged, no action

@@ -141,7 +141,8 @@ fn main() {
     let monitor_snapshot = snapshot_buffer.clone();
     let monitor_thread = std::thread::spawn(move || {
         let api = Win32Api::new();
-        let mut monitor = Monitor::new(api, monitor_config, monitor_paused, monitor_snapshot);
+        let foreground_timestamps = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let mut monitor = Monitor::new(api, monitor_config, monitor_paused, monitor_snapshot, foreground_timestamps);
         monitor.run(monitor_stop);
     });
 
@@ -415,6 +416,7 @@ fn run_headless(config: Arc<RwLock<Config>>, paused: Arc<AtomicBool>, should_sto
     log::warn!("Running in headless mode (no GUI)");
     let api = Win32Api::new();
     let dummy_buffer = Arc::new(Mutex::new(Vec::new()));
-    let mut monitor = Monitor::new(api, config, paused, dummy_buffer);
+    let foreground_timestamps = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let mut monitor = Monitor::new(api, config, paused, dummy_buffer, foreground_timestamps);
     monitor.run(should_stop);
 }
