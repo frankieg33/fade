@@ -45,7 +45,7 @@ fn main() {
     update_gui_from_config(&window, &config.read().unwrap());
 
     // Wire up GUI callbacks
-    setup_gui_callbacks(&window, config.clone());
+    setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone());
 
     // Close hides to tray — does NOT quit
     let window_weak = window.as_weak();
@@ -115,6 +115,7 @@ fn main() {
 
     // Refresh active windows in the GUI from the monitor's snapshot buffer
     let snapshot_for_gui = snapshot_buffer.clone();
+    let config_for_gui = config.clone();
     let visible_for_gui = window_visible.clone();
     let gui_weak = window.as_weak();
     let gui_refresh_timer = slint::Timer::default();
@@ -126,19 +127,8 @@ fn main() {
                 return;
             }
             if let Some(w) = gui_weak.upgrade() {
-                if let Ok(buf) = snapshot_for_gui.lock() {
-                    let models: Vec<ActiveWindowModel> = buf
-                        .iter()
-                        .map(|s| ActiveWindowModel {
-                            process: s.process.clone().into(),
-                            title: s.title.clone().into(),
-                            idle_secs: s.idle_secs as i32,
-                            managed: s.managed,
-                        })
-                        .collect();
-                    w.set_active_windows(
-                        std::rc::Rc::new(slint::VecModel::from(models)).into(),
-                    );
+                if let Ok(cfg) = config_for_gui.read() {
+                    refresh_active_windows(&w, &cfg, &snapshot_for_gui);
                 }
             }
         },
@@ -200,6 +190,7 @@ fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
             timeout_mins: b.timeout_mins as i32,
             action: b.action.as_str().into(),
             enabled: b.enabled,
+            processes: b.processes.join(", ").into(),
         })
         .collect();
     window.set_buckets(std::rc::Rc::new(slint::VecModel::from(buckets)).into());
@@ -209,16 +200,71 @@ fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
     window.set_auto_start(config.general.auto_start);
 }
 
+/// Refresh the active windows model in the GUI using current config + snapshot buffer.
+fn refresh_active_windows(
+    window: &SettingsWindow,
+    config: &Config,
+    snapshot_buffer: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+) {
+    if let Ok(buf) = snapshot_buffer.lock() {
+        let models: Vec<ActiveWindowModel> = buf
+            .iter()
+            .filter(|s| !config.is_hidden(&s.process))
+            .map(|s| ActiveWindowModel {
+                process: s.process.clone().into(),
+                title: s.title.clone().into(),
+                idle_secs: s.idle_secs as i32,
+                managed: config.resolve_process(&s.process.to_lowercase()).is_some(),
+            })
+            .collect();
+        window.set_active_windows(
+            std::rc::Rc::new(slint::VecModel::from(models)).into(),
+        );
+    }
+}
+
 /// Wire Slint callbacks to modify the shared config.
-fn setup_gui_callbacks(window: &SettingsWindow, config: Arc<RwLock<Config>>) {
+fn setup_gui_callbacks(
+    window: &SettingsWindow,
+    config: Arc<RwLock<Config>>,
+    snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+) {
+    // Helper: refresh rules + active windows after any rule/bucket mutation
+    let refresh_all = move |cfg: &Config,
+                            weak: &slint::Weak<SettingsWindow>,
+                            snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>| {
+        if let Some(w) = weak.upgrade() {
+            // Refresh rules
+            let rules: Vec<AppRuleModel> = cfg
+                .app_rule
+                .iter()
+                .map(|r| AppRuleModel {
+                    process: r.process.clone().into(),
+                    timeout_mins: r.timeout_mins as i32,
+                    action: r.action.as_str().into(),
+                    enabled: r.enabled,
+                })
+                .collect();
+            w.set_app_rules(std::rc::Rc::new(slint::VecModel::from(rules)).into());
+
+            // Refresh active windows (updates managed status, removes hidden)
+            refresh_active_windows(&w, cfg, snap);
+        }
+    };
+
     // Add rule
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_add_rule(move |process| {
         let process_str = process.to_string();
         if process_str.is_empty() {
             return;
         }
         if let Ok(mut c) = cfg.write() {
+            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str)) {
+                return;
+            }
             c.app_rule.push(config::AppRule {
                 process: process_str,
                 timeout_mins: 15,
@@ -226,29 +272,36 @@ fn setup_gui_callbacks(window: &SettingsWindow, config: Arc<RwLock<Config>>) {
                 enabled: true,
             });
             let _ = c.save();
+            refresh_all(&c, &weak, &snap);
         }
     });
 
     // Remove rule
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_remove_rule(move |idx| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.app_rule.len() {
                 c.app_rule.remove(idx);
                 let _ = c.save();
+                refresh_all(&c, &weak, &snap);
             }
         }
     });
 
     // Toggle rule enabled
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_toggle_rule(move |idx, enabled| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.app_rule.len() {
                 c.app_rule[idx].enabled = enabled;
                 let _ = c.save();
+                refresh_all(&c, &weak, &snap);
             }
         }
     });
@@ -267,36 +320,45 @@ fn setup_gui_callbacks(window: &SettingsWindow, config: Arc<RwLock<Config>>) {
 
     // Update rule action
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_update_rule_action(move |idx, action| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.app_rule.len() {
                 c.app_rule[idx].action = Action::from_str(&action);
                 let _ = c.save();
+                refresh_all(&c, &weak, &snap);
             }
         }
     });
 
     // Hide process
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_hide_process(move |process| {
         if let Ok(mut c) = cfg.write() {
             let process_str = process.to_string();
             if !c.general.hidden_processes.contains(&process_str) {
                 c.general.hidden_processes.push(process_str);
                 let _ = c.save();
+                refresh_active_windows(&weak.upgrade().unwrap(), &c, &snap);
             }
         }
     });
 
     // Toggle bucket
     let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_toggle_bucket(move |idx, enabled| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].enabled = enabled;
                 let _ = c.save();
+                refresh_all(&c, &weak, &snap);
             }
         }
     });

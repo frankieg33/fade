@@ -5,6 +5,7 @@ use crate::config::Bucket;
 /// Check which processes from a bucket are likely installed.
 /// Uses running process snapshot as the primary signal.
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn filter_installed(bucket: &Bucket) -> Vec<String> {
     let running = get_running_processes();
     bucket
@@ -19,6 +20,7 @@ pub fn filter_installed(bucket: &Bucket) -> Vec<String> {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn get_running_processes() -> Vec<String> {
     use windows::Win32::System::ProcessStatus::EnumProcesses;
     use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION};

@@ -125,7 +125,7 @@ mod win32_impl {
                 }
 
                 let style = GetWindowLongW(h, GWL_STYLE) as u32;
-                let ex_style = GetWindowLongW(h, GWL_EXSTYLE) as u32;
+                let _ex_style = GetWindowLongW(h, GWL_EXSTYLE) as u32;
 
                 // Fullscreen windows are typically WS_POPUP without WS_THICKFRAME
                 let is_popup = (style & WS_POPUP.0) != 0;
