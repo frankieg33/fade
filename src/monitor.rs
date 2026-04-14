@@ -6,9 +6,14 @@ use crate::config::{Action, Config};
 use crate::filter;
 use crate::winapi::{WindowApi, WindowEntry};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+
+/// Shared foreground timestamps, updated by the Win32 event hook (real-time)
+/// and by the monitor's poll fallback. Read by the monitor for idle calculations.
+pub type ForegroundTimestamps = Arc<Mutex<HashMap<String, Instant>>>;
 
 /// Snapshot of a tracked window for the GUI's active-windows view.
 #[derive(Debug, Clone)]
@@ -36,7 +41,7 @@ pub struct Monitor<W: WindowApi> {
     snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
     /// Processes that had active rules last poll (lowercase).
     /// Used to detect newly managed processes and reset their idle clock.
-    previously_managed: std::collections::HashSet<String>,
+    previously_managed: HashSet<String>,
 }
 
 impl<W: WindowApi> Monitor<W> {
@@ -54,7 +59,7 @@ impl<W: WindowApi> Monitor<W> {
             current_windows: Vec::new(),
             cumulative_idle: HashMap::new(),
             snapshot_buffer,
-            previously_managed: std::collections::HashSet::new(),
+            previously_managed: HashSet::new(),
         }
     }
 
@@ -76,7 +81,7 @@ impl<W: WindowApi> Monitor<W> {
 
         // 0. Detect newly managed processes and reset their idle clock.
         // This prevents immediate action when a rule is added for an already-open window.
-        let mut currently_managed = std::collections::HashSet::new();
+        let mut currently_managed = HashSet::new();
         for rule in &config.app_rule {
             if rule.enabled {
                 currently_managed.insert(rule.process.to_lowercase());
@@ -89,7 +94,7 @@ impl<W: WindowApi> Monitor<W> {
                 }
             }
         }
-        let mut newly_managed = std::collections::HashSet::new();
+        let mut newly_managed = HashSet::new();
         for proc in &currently_managed {
             if !self.previously_managed.contains(proc) {
                 // Newly managed — give it a fresh grace period
