@@ -780,4 +780,44 @@ mod tests {
         monitor.poll();
         assert!(!mock.get_minimized().is_empty());
     }
+
+    #[test]
+    fn test_external_timestamp_update_respected() {
+        // Simulates the foreground hook updating timestamps externally
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 1,
+                action: Action::Minimize,
+                enabled: true,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
+
+        // Simulate hook setting notepad as recently active (5 seconds ago)
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(5),
+        );
+
+        monitor.poll();
+
+        // 5 seconds < 1 minute timeout — should NOT minimize
+        assert!(mock.get_minimized().is_empty());
+
+        // Now simulate hook hasn't fired for a long time (notepad idle 2 minutes)
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(120),
+        );
+
+        monitor.poll();
+
+        // 120 seconds > 60 second timeout — should minimize
+        assert!(!mock.get_minimized().is_empty());
+    }
 }
