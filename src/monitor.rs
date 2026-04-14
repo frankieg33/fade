@@ -34,6 +34,9 @@ pub struct Monitor<W: WindowApi> {
     cumulative_idle: HashMap<String, Duration>,
     /// Shared buffer for GUI to read active window snapshots.
     snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+    /// Processes that had active rules last poll (lowercase).
+    /// Used to detect newly managed processes and reset their idle clock.
+    previously_managed: std::collections::HashSet<String>,
 }
 
 impl<W: WindowApi> Monitor<W> {
@@ -51,6 +54,7 @@ impl<W: WindowApi> Monitor<W> {
             current_windows: Vec::new(),
             cumulative_idle: HashMap::new(),
             snapshot_buffer,
+            previously_managed: std::collections::HashSet::new(),
         }
     }
 
@@ -69,6 +73,31 @@ impl<W: WindowApi> Monitor<W> {
         };
 
         let now = Instant::now();
+
+        // 0. Detect newly managed processes and reset their idle clock.
+        // This prevents immediate action when a rule is added for an already-open window.
+        let mut currently_managed = std::collections::HashSet::new();
+        for rule in &config.app_rule {
+            if rule.enabled {
+                currently_managed.insert(rule.process.to_lowercase());
+            }
+        }
+        for bucket in &config.bucket {
+            if bucket.enabled {
+                for proc in &bucket.processes {
+                    currently_managed.insert(proc.to_lowercase());
+                }
+            }
+        }
+        let mut newly_managed = std::collections::HashSet::new();
+        for proc in &currently_managed {
+            if !self.previously_managed.contains(proc) {
+                // Newly managed — give it a fresh grace period
+                self.last_foreground.insert(proc.clone(), now);
+                newly_managed.insert(proc.clone());
+            }
+        }
+        self.previously_managed = currently_managed;
 
         // 1. Update foreground process timestamp
         let foreground = self.api.get_foreground_process();
@@ -106,6 +135,11 @@ impl<W: WindowApi> Monitor<W> {
 
             // Skip system/filtered windows
             if filter::is_system_window(&entry.info) {
+                continue;
+            }
+
+            // Skip processes that just became managed this poll cycle
+            if newly_managed.contains(&proc_lower) {
                 continue;
             }
 
@@ -686,5 +720,40 @@ mod tests {
 
         let buf = snapshot_buffer.lock().unwrap();
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_newly_managed_process_gets_grace_period() {
+        // Start with no rules — notepad is unmanaged
+        let config = make_config(vec![], vec![]);
+        let (mut monitor, mock, config_arc, _) = setup(config);
+
+        // notepad is open and was last in foreground a long time ago
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
+        monitor
+            .last_foreground
+            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        monitor.poll();
+        assert!(mock.get_minimized().is_empty()); // unmanaged, no action
+
+        // Now add a rule with timeout=0 (immediate)
+        {
+            let mut cfg = config_arc.write().unwrap();
+            cfg.app_rule.push(AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Minimize,
+                enabled: true,
+            });
+        }
+
+        // First poll after rule added: should NOT minimize (grace period)
+        monitor.poll();
+        assert!(mock.get_minimized().is_empty());
+
+        // Second poll: now it should act (idle clock was reset, but timeout=0)
+        monitor.poll();
+        assert!(!mock.get_minimized().is_empty());
     }
 }

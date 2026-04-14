@@ -21,6 +21,7 @@ export struct BucketModel {
     timeout-mins: int,
     action: string,
     enabled: bool,
+    processes: string,
 }
 
 export component SettingsWindow inherits Window {
@@ -94,18 +95,25 @@ export component SettingsWindow inherits Window {
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
                                 }
+                                LineEdit {
+                                    width: 50px;
+                                    text: rule.timeout-mins + "";
+                                    input-type: number;
+                                    accepted(val) => {
+                                        root.update-rule-timeout(idx, val.to-float());
+                                    }
+                                }
                                 Text {
-                                    text: rule.timeout-mins + " min";
+                                    text: "min";
                                     color: FadeTheme.text-dim;
                                     vertical-alignment: center;
-                                    width: 60px;
                                 }
-                                Slider {
-                                    width: 120px;
+                                rule-slider := Slider {
+                                    width: 100px;
                                     minimum: 1;
-                                    maximum: 120;
-                                    value: rule.timeout-mins;
-                                    changed(val) => { root.update-rule-timeout(idx, val); }
+                                    maximum: 24;
+                                    value: Math.ceil(rule.timeout-mins / 5);
+                                    changed(val) => { root.update-rule-timeout(idx, Math.round(val) * 5); }
                                 }
                                 ComboBox {
                                     width: 100px;
@@ -168,7 +176,66 @@ export component SettingsWindow inherits Window {
                         Text { text: "Process"; color: FadeTheme.accent; width: 150px; font-size: 12px; font-weight: 600; }
                         Text { text: "Title"; color: FadeTheme.accent; horizontal-stretch: 1; font-size: 12px; font-weight: 600; }
                         Text { text: "Idle"; color: FadeTheme.accent; width: 80px; font-size: 12px; font-weight: 600; }
-                        Text { text: "Status"; color: FadeTheme.accent; width: 80px; font-size: 12px; font-weight: 600; }
+                        Text { text: ""; width: 40px; }
+                    }
+                }
+
+                property <string> context-process;
+
+                context-menu := PopupWindow {
+                    x: 0px;
+                    y: 0px;
+                    Rectangle {
+                        background: FadeTheme.surface;
+                        border-radius: FadeTheme.radius;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: #00000066;
+                        width: 160px;
+                        height: 64px;
+
+                        VerticalBox {
+                            padding: 4px;
+                            spacing: 2px;
+
+                            Rectangle {
+                                height: 28px;
+                                border-radius: 4px;
+                                background: add-ta.has-hover ? FadeTheme.accent : transparent;
+                                add-ta := TouchArea {
+                                    clicked => {
+                                        root.add-rule(context-process);
+                                    }
+                                }
+                                HorizontalBox {
+                                    padding-left: 8px;
+                                    Text {
+                                        text: "Add Rule";
+                                        color: add-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                height: 28px;
+                                border-radius: 4px;
+                                background: hide-ta.has-hover ? FadeTheme.accent : transparent;
+                                hide-ta := TouchArea {
+                                    clicked => {
+                                        root.hide-process(context-process);
+                                    }
+                                }
+                                HorizontalBox {
+                                    padding-left: 8px;
+                                    Text {
+                                        text: "Hide";
+                                        color: hide-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -179,7 +246,7 @@ export component SettingsWindow inherits Window {
                         for win[idx] in root.active-windows: Rectangle {
                             height: 32px;
                             border-radius: FadeTheme.radius;
-                            background: Math.mod(idx, 2) == 0 ? FadeTheme.surface : FadeTheme.bg;
+                            background: ta.has-hover ? FadeTheme.surface-hover : Math.mod(idx, 2) == 0 ? FadeTheme.surface : FadeTheme.bg;
 
                             HorizontalBox {
                                 padding: FadeTheme.spacing;
@@ -206,17 +273,44 @@ export component SettingsWindow inherits Window {
                                     font-size: 12px;
                                     vertical-alignment: center;
                                 }
-                                Text {
-                                    text: win.managed ? "managed" : "—";
-                                    color: win.managed ? FadeTheme.success : FadeTheme.text-dim;
-                                    width: 80px;
-                                    font-size: 12px;
+                                if win.managed: Text {
+                                    text: "✓";
+                                    color: FadeTheme.success;
+                                    width: 40px;
+                                    font-size: 14px;
+                                    horizontal-alignment: center;
                                     vertical-alignment: center;
+                                }
+                                if !win.managed: Rectangle {
+                                    width: 40px;
+                                    height: 24px;
+                                    border-radius: 4px;
+                                    background: add-btn-ta.has-hover ? FadeTheme.accent : FadeTheme.surface-hover;
+                                    add-btn-ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.add-rule(win.process);
+                                        }
+                                    }
+                                    Text {
+                                        text: "+";
+                                        color: add-btn-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                        font-size: 14px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
 
                             ta := TouchArea {
                                 mouse-cursor: pointer;
+                                pointer-event(event) => {
+                                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                                        context-process = win.process;
+                                        context-menu.show();
+                                    }
+                                }
                             }
                         }
                     }
@@ -247,44 +341,95 @@ export component SettingsWindow inherits Window {
                     VerticalBox {
                         spacing: FadeTheme.spacing;
                         for bucket[idx] in root.buckets: Rectangle {
-                            height: 50px;
                             border-radius: FadeTheme.radius;
                             background: FadeTheme.surface;
 
-                            HorizontalBox {
-                                padding: FadeTheme.spacing;
-                                spacing: FadeTheme.spacing;
-                                alignment: center;
+                            property <bool> expanded: false;
 
-                                CheckBox {
-                                    checked: bucket.enabled;
-                                    toggled => { root.toggle-bucket(idx, self.checked); }
+                            VerticalBox {
+                                padding: FadeTheme.spacing;
+                                spacing: 4px;
+
+                                HorizontalBox {
+                                    spacing: FadeTheme.spacing;
+                                    alignment: center;
+
+                                    CheckBox {
+                                        checked: bucket.enabled;
+                                        toggled => { root.toggle-bucket(idx, self.checked); }
+                                    }
+                                    Text {
+                                        text: bucket.name;
+                                        color: FadeTheme.text;
+                                        font-weight: 600;
+                                        vertical-alignment: center;
+                                        width: 150px;
+                                    }
+                                    LineEdit {
+                                        width: 50px;
+                                        text: bucket.timeout-mins + "";
+                                        input-type: number;
+                                        accepted(val) => {
+                                            root.update-bucket-timeout(idx, val.to-float());
+                                        }
+                                    }
+                                    Text {
+                                        text: "min";
+                                        color: FadeTheme.text-dim;
+                                        vertical-alignment: center;
+                                    }
+                                    bucket-slider := Slider {
+                                        width: 100px;
+                                        minimum: 1;
+                                        maximum: 24;
+                                        value: Math.ceil(bucket.timeout-mins / 5);
+                                        changed(val) => { root.update-bucket-timeout(idx, Math.round(val) * 5); }
+                                    }
+                                    ComboBox {
+                                        width: 100px;
+                                        model: ["minimize", "close"];
+                                        current-value: bucket.action;
+                                        selected(val) => { root.update-bucket-action(idx, val); }
+                                    }
                                 }
-                                Text {
-                                    text: bucket.name;
-                                    color: FadeTheme.text;
-                                    font-weight: 600;
-                                    vertical-alignment: center;
-                                    width: 150px;
+
+                                // Collapsible app list toggle
+                                Rectangle {
+                                    height: 20px;
+                                    expand-ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { expanded = !expanded; }
+                                    }
+                                    HorizontalBox {
+                                        spacing: 4px;
+                                        Text {
+                                            text: expanded ? "▾" : "▸";
+                                            color: FadeTheme.text-dim;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: "Apps";
+                                            color: expand-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
                                 }
-                                Text {
-                                    text: bucket.timeout-mins + " min";
-                                    color: FadeTheme.text-dim;
-                                    vertical-alignment: center;
-                                    width: 60px;
-                                }
-                                Slider {
-                                    width: 150px;
-                                    minimum: 1;
-                                    maximum: 120;
-                                    value: bucket.timeout-mins;
-                                    changed(val) => { root.update-bucket-timeout(idx, val); }
-                                }
-                                ComboBox {
-                                    width: 100px;
-                                    model: ["minimize", "close"];
-                                    current-value: bucket.action;
-                                    selected(val) => { root.update-bucket-action(idx, val); }
+
+                                // Expanded app list
+                                if expanded: Rectangle {
+                                    background: FadeTheme.bg;
+                                    border-radius: 4px;
+                                    HorizontalBox {
+                                        padding: FadeTheme.spacing;
+                                        Text {
+                                            text: "📦 " + bucket.processes;
+                                            color: FadeTheme.text-dim;
+                                            font-size: 11px;
+                                            wrap: word-wrap;
+                                        }
+                                    }
                                 }
                             }
                         }
