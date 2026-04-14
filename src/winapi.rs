@@ -226,7 +226,7 @@ mod win32_impl {
         TRUE
     }
 
-    unsafe fn get_process_name_from_pid(pid: u32) -> Option<String> {
+    pub(super) unsafe fn get_process_name_from_pid(pid: u32) -> Option<String> {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 1024];
         let mut size = buf.len() as u32;
@@ -242,6 +242,92 @@ mod win32_impl {
             None
         }
     }
+}
+
+/// Handle guard for the Win32 foreground event hook. Unhooks on drop.
+#[cfg(target_os = "windows")]
+pub struct ForegroundHookGuard {
+    handle: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for ForegroundHookGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows::Win32::UI::Accessibility::UnhookWinEvent(self.handle);
+        }
+        log::info!("Foreground event hook uninstalled");
+    }
+}
+
+/// Install a Win32 event hook that updates shared foreground timestamps
+/// whenever the foreground window changes.
+///
+/// MUST be called from a thread with a Win32 message pump (the Slint UI thread).
+/// Returns a guard that unhooks on drop.
+#[cfg(target_os = "windows")]
+pub fn install_foreground_hook(
+    timestamps: crate::monitor::ForegroundTimestamps,
+) -> Result<ForegroundHookGuard, String> {
+    use std::sync::OnceLock;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EVENT_SYSTEM_FOREGROUND, GetWindowThreadProcessId, WINEVENT_OUTOFCONTEXT,
+    };
+
+    // Store the shared timestamps in a global so the callback can access them.
+    // Safe because install_foreground_hook is called once from the main thread.
+    static HOOK_TIMESTAMPS: OnceLock<crate::monitor::ForegroundTimestamps> = OnceLock::new();
+    HOOK_TIMESTAMPS
+        .set(timestamps)
+        .map_err(|_| "Foreground hook already installed".to_string())?;
+
+    unsafe extern "system" fn hook_callback(
+        _hook: HWINEVENTHOOK,
+        _event: u32,
+        hwnd: HWND,
+        _id_object: i32,
+        _id_child: i32,
+        _event_thread: u32,
+        _event_time: u32,
+    ) {
+        if hwnd.0.is_null() {
+            return;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return;
+        }
+        // Resolve PID to process name
+        if let Some(name) = win32_impl::get_process_name_from_pid(pid) {
+            if let Some(ts) = HOOK_TIMESTAMPS.get() {
+                if let Ok(mut map) = ts.lock() {
+                    map.insert(name.to_lowercase(), std::time::Instant::now());
+                }
+            }
+        }
+    }
+
+    let handle = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None, // no DLL — WINEVENT_OUTOFCONTEXT
+            Some(hook_callback),
+            0, // all processes
+            0, // all threads
+            WINEVENT_OUTOFCONTEXT,
+        )
+    };
+
+    if handle.0.is_null() {
+        return Err("SetWinEventHook returned null".to_string());
+    }
+
+    log::info!("Foreground event hook installed");
+    Ok(ForegroundHookGuard { handle })
 }
 
 /// Stub implementation for non-Windows platforms (for compilation/testing).
@@ -273,6 +359,16 @@ impl WindowApi for Win32Api {
     fn is_window_valid(&self, _hwnd: isize) -> bool {
         false
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub struct ForegroundHookGuard;
+
+#[cfg(not(target_os = "windows"))]
+pub fn install_foreground_hook(
+    _timestamps: crate::monitor::ForegroundTimestamps,
+) -> Result<ForegroundHookGuard, String> {
+    Ok(ForegroundHookGuard)
 }
 
 /// Mock implementation for tests.
