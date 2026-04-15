@@ -16,18 +16,3 @@ pub fn set_auto_start(enabled: bool) -> Result<(), String> {
         auto.disable().map_err(|e| format!("Failed to disable auto-start: {}", e))
     }
 }
-
-#[allow(dead_code)]
-pub fn is_auto_start_enabled() -> bool {
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    let exe_str = match exe.to_str() {
-        Some(s) => s,
-        None => return false,
-    };
-
-    let auto = AutoLaunch::new("Fade", exe_str, &[] as &[&str]);
-    auto.is_enabled().unwrap_or(false)
-}

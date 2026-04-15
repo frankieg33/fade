@@ -227,20 +227,19 @@ mod win32_impl {
     }
 
     pub(super) unsafe fn get_process_name_from_pid(pid: u32) -> Option<String> {
+        use windows::Win32::Foundation::CloseHandle;
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 1024];
         let mut size = buf.len() as u32;
         let pwstr = PWSTR(buf.as_mut_ptr());
-        if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), pwstr, &mut size).is_ok() {
+        let result = if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), pwstr, &mut size).is_ok() {
             let full_path = String::from_utf16_lossy(&buf[..size as usize]);
-            // Extract just the filename
-            full_path
-                .rsplit('\\')
-                .next()
-                .map(|s| s.to_string())
+            full_path.rsplit('\\').next().map(|s| s.to_string())
         } else {
             None
-        }
+        };
+        let _ = CloseHandle(handle);
+        result
     }
 }
 

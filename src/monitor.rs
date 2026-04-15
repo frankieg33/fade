@@ -17,12 +17,10 @@ pub type ForegroundTimestamps = Arc<Mutex<HashMap<String, Instant>>>;
 
 /// Snapshot of a tracked window for the GUI's active-windows view.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ActiveWindowSnapshot {
     pub process: String,
     pub title: String,
     pub idle_secs: u64,
-    pub managed: bool,
 }
 
 /// The monitor that runs the polling loop.
@@ -35,8 +33,6 @@ pub struct Monitor<W: WindowApi> {
     /// HWND lookup: process_name_lower -> vec of (hwnd, title)
     /// Updated each poll cycle from enumeration.
     current_windows: Vec<WindowEntry>,
-    /// Cumulative idle time per process (for "troublesome" ranking).
-    cumulative_idle: HashMap<String, Duration>,
     /// Shared buffer for GUI to read active window snapshots.
     snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
     /// Processes that had active rules last poll (lowercase).
@@ -58,7 +54,6 @@ impl<W: WindowApi> Monitor<W> {
             paused,
             foreground_timestamps,
             current_windows: Vec::new(),
-            cumulative_idle: HashMap::new(),
             snapshot_buffer,
             previously_managed: HashSet::new(),
         }
@@ -96,8 +91,7 @@ impl<W: WindowApi> Monitor<W> {
             }
         }
         let mut newly_managed = HashSet::new();
-        {
-            let mut timestamps = self.foreground_timestamps.lock().unwrap();
+        if let Ok(mut timestamps) = self.foreground_timestamps.lock() {
             for proc in &currently_managed {
                 if !self.previously_managed.contains(proc) {
                     timestamps.insert(proc.clone(), now);
@@ -111,7 +105,9 @@ impl<W: WindowApi> Monitor<W> {
         let foreground = self.api.get_foreground_process();
         if let Some(ref fg) = foreground {
             let fg_lower = fg.to_lowercase();
-            self.foreground_timestamps.lock().unwrap().insert(fg_lower, now);
+            if let Ok(mut ts) = self.foreground_timestamps.lock() {
+                ts.insert(fg_lower, now);
+            }
         }
 
         // 2. Enumerate visible windows and store for GUI snapshot
@@ -131,9 +127,14 @@ impl<W: WindowApi> Monitor<W> {
 
         let mut actions: Vec<PendingAction> = Vec::new();
         let mut new_timestamps: Vec<(String, Instant)> = Vec::new();
-        let mut cumulative_updates: Vec<String> = Vec::new();
 
-        let fg_snapshot = self.foreground_timestamps.lock().unwrap().clone();
+        let fg_snapshot = match self.foreground_timestamps.lock() {
+            Ok(ts) => ts.clone(),
+            Err(e) => {
+                log::error!("Foreground timestamps lock poisoned, skipping poll: {}", e);
+                return;
+            }
+        };
 
         for entry in &self.current_windows {
             let proc_lower = entry.info.process_name.to_lowercase();
@@ -156,10 +157,7 @@ impl<W: WindowApi> Monitor<W> {
             // Look up rule
             let rule = match config.resolve_process(&proc_lower) {
                 Some(r) => r,
-                None => {
-                    cumulative_updates.push(proc_lower);
-                    continue;
-                }
+                None => continue,
             };
 
             // Check idle time
@@ -205,18 +203,15 @@ impl<W: WindowApi> Monitor<W> {
                 action: rule.action.clone(),
                 idle_secs: idle_duration.as_secs_f64(),
             });
-            cumulative_updates.push(proc_lower);
         }
 
-        // Apply deferred mutations
-        {
-            let mut timestamps = self.foreground_timestamps.lock().unwrap();
-            for (proc, ts) in new_timestamps {
-                timestamps.insert(proc, ts);
+        // Apply deferred timestamp mutations
+        if !new_timestamps.is_empty() {
+            if let Ok(mut timestamps) = self.foreground_timestamps.lock() {
+                for (proc, ts) in new_timestamps {
+                    timestamps.insert(proc, ts);
+                }
             }
-        }
-        for proc in cumulative_updates {
-            self.track_cumulative_idle(&proc, now);
         }
 
         // Execute actions
@@ -246,31 +241,26 @@ impl<W: WindowApi> Monitor<W> {
 
     /// Get a snapshot of active windows for the GUI.
     pub fn get_active_windows_snapshot(&self) -> Vec<ActiveWindowSnapshot> {
-        let config = match self.config.read() {
-            Ok(c) => c,
+        let now = Instant::now();
+        let fg_snapshot = match self.foreground_timestamps.lock() {
+            Ok(ts) => ts.clone(),
             Err(_) => return Vec::new(),
         };
-
-        let now = Instant::now();
-        let fg_snapshot = self.foreground_timestamps.lock().unwrap().clone();
         let mut snapshots: Vec<ActiveWindowSnapshot> = self
             .current_windows
             .iter()
             .filter(|e| !filter::is_system_window(&e.info))
-            .filter(|e| !config.is_hidden(&e.info.process_name))
             .map(|e| {
                 let proc_lower = e.info.process_name.to_lowercase();
                 let idle_secs = fg_snapshot
                     .get(&proc_lower)
                     .map(|t| now.duration_since(*t).as_secs())
                     .unwrap_or(0);
-                let managed = config.resolve_process(&proc_lower).is_some();
 
                 ActiveWindowSnapshot {
                     process: e.info.process_name.clone(),
                     title: e.info.title.clone(),
                     idle_secs,
-                    managed,
                 }
             })
             .collect();
@@ -279,15 +269,6 @@ impl<W: WindowApi> Monitor<W> {
         snapshots.sort_by(|a, b| b.idle_secs.cmp(&a.idle_secs));
 
         snapshots
-    }
-
-    fn track_cumulative_idle(&mut self, process: &str, now: Instant) {
-        let timestamps = self.foreground_timestamps.lock().unwrap();
-        if let Some(last_fg) = timestamps.get(process) {
-            let idle = now.duration_since(*last_fg);
-            let entry = self.cumulative_idle.entry(process.to_string()).or_default();
-            *entry += idle;
-        }
     }
 
     /// Run the monitor loop. Blocks until `should_stop` is set.
