@@ -89,27 +89,6 @@ pub fn is_system_window(info: &WindowInfo) -> bool {
     false
 }
 
-/// Filter a list of windows, removing system windows and optionally hidden processes.
-#[allow(dead_code)]
-pub fn filter_windows(windows: Vec<WindowInfo>, hidden: &[String]) -> Vec<WindowInfo> {
-    let hidden_lower: Vec<String> = hidden.iter().map(|h| h.to_lowercase()).collect();
-
-    windows
-        .into_iter()
-        .filter(|w| {
-            if is_system_window(w) {
-                return false;
-            }
-            // Check hidden list
-            let proc_lower = w.process_name.to_lowercase();
-            if hidden_lower.contains(&proc_lower) {
-                return false;
-            }
-            true
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,19 +152,6 @@ mod tests {
     fn test_explorer_file_window_passes() {
         let w = make_window("explorer.exe", "Documents", "CabinetWClass");
         assert!(!is_system_window(&w));
-    }
-
-    #[test]
-    fn test_hidden_list_filtering() {
-        let windows = vec![
-            make_window("chrome.exe", "Google", "Chrome"),
-            make_window("notepad.exe", "Untitled", "Notepad"),
-            make_window("slack.exe", "Slack", "Slack"),
-        ];
-        let hidden = vec!["notepad.exe".into()];
-        let result = filter_windows(windows, &hidden);
-        assert_eq!(result.len(), 2);
-        assert!(result.iter().all(|w| w.process_name != "notepad.exe"));
     }
 
     #[test]

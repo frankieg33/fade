@@ -25,7 +25,11 @@ impl Action {
     pub fn from_str(s: &str) -> Self {
         match s {
             "close" => Action::Close,
-            _ => Action::Minimize,
+            "minimize" => Action::Minimize,
+            other => {
+                log::warn!("Unknown action '{}', defaulting to minimize", other);
+                Action::Minimize
+            }
         }
     }
 }

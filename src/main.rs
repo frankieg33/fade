@@ -2,6 +2,7 @@ mod autostart;
 mod buckets;
 mod config;
 mod filter;
+mod icons;
 mod monitor;
 mod tray;
 mod winapi;
@@ -60,8 +61,10 @@ fn main() {
         slint::CloseRequestResponse::KeepWindowShown
     });
 
+    // Load app icon for tray
+    let (icon_rgba, icon_w, icon_h) = tray::load_icon();
+
     // Create tray icon
-    let (icon_rgba, icon_w, icon_h) = tray::generate_default_icon();
     let tray_result = tray::create_tray_icon(icon_rgba, icon_w, icon_h);
 
     let _tray_icon = match tray_result {
@@ -178,31 +181,43 @@ fn main() {
     log::info!("Fade stopped");
 }
 
-/// Populate Slint GUI properties from the Config struct.
-fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
-    // App rules
-    let rules: Vec<AppRuleModel> = config
-        .app_rule
+/// Convert config app rules to Slint models.
+fn app_rules_to_models(rules: &[config::AppRule]) -> Vec<AppRuleModel> {
+    rules
         .iter()
         .map(|r| AppRuleModel {
+            icon: icons::process_icon(&r.process).into(),
             process: r.process.clone().into(),
             timeout_mins: r.timeout_mins as i32,
             action: r.action.as_str().into(),
             enabled: r.enabled,
         })
-        .collect();
+        .collect()
+}
+
+/// Populate Slint GUI properties from the Config struct.
+fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
+    // App rules
+    let rules = app_rules_to_models(&config.app_rule);
     window.set_app_rules(std::rc::Rc::new(slint::VecModel::from(rules)).into());
 
     // Buckets
     let buckets: Vec<BucketModel> = config
         .bucket
         .iter()
-        .map(|b| BucketModel {
-            name: b.name.clone().into(),
-            timeout_mins: b.timeout_mins as i32,
-            action: b.action.as_str().into(),
-            enabled: b.enabled,
-            processes: b.processes.join(", ").into(),
+        .map(|b| {
+            let annotated_procs = b.processes.iter()
+                .map(|p| format!("{} {}", icons::process_icon(p), p))
+                .collect::<Vec<_>>()
+                .join(",  ");
+            BucketModel {
+                icon: icons::bucket_icon(&b.name).into(),
+                name: b.name.clone().into(),
+                timeout_mins: b.timeout_mins as i32,
+                action: b.action.as_str().into(),
+                enabled: b.enabled,
+                processes: annotated_procs.into(),
+            }
         })
         .collect();
     window.set_buckets(std::rc::Rc::new(slint::VecModel::from(buckets)).into());
@@ -210,6 +225,7 @@ fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
     // General
     window.set_polling_interval_secs(config.general.polling_interval_secs as i32);
     window.set_auto_start(config.general.auto_start);
+    window.set_version(env!("CARGO_PKG_VERSION").into());
 }
 
 /// Refresh the active windows model in the GUI using current config + snapshot buffer.
@@ -223,6 +239,7 @@ fn refresh_active_windows(
             .iter()
             .filter(|s| !config.is_hidden(&s.process))
             .map(|s| ActiveWindowModel {
+                icon: icons::process_icon(&s.process).into(),
                 process: s.process.clone().into(),
                 title: s.title.clone().into(),
                 idle_secs: s.idle_secs as i32,
@@ -247,16 +264,7 @@ fn setup_gui_callbacks(
                             snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>| {
         if let Some(w) = weak.upgrade() {
             // Refresh rules
-            let rules: Vec<AppRuleModel> = cfg
-                .app_rule
-                .iter()
-                .map(|r| AppRuleModel {
-                    process: r.process.clone().into(),
-                    timeout_mins: r.timeout_mins as i32,
-                    action: r.action.as_str().into(),
-                    enabled: r.enabled,
-                })
-                .collect();
+            let rules = app_rules_to_models(&cfg.app_rule);
             w.set_app_rules(std::rc::Rc::new(slint::VecModel::from(rules)).into());
 
             // Refresh active windows (updates managed status, removes hidden)
@@ -355,7 +363,9 @@ fn setup_gui_callbacks(
             if !c.general.hidden_processes.contains(&process_str) {
                 c.general.hidden_processes.push(process_str);
                 let _ = c.save();
-                refresh_active_windows(&weak.upgrade().unwrap(), &c, &snap);
+                if let Some(w) = weak.upgrade() {
+                    refresh_active_windows(&w, &c, &snap);
+                }
             }
         }
     });

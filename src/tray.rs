@@ -88,32 +88,38 @@ mod platform {
 
 pub use platform::*;
 
-/// Generate a simple icon (solid color square) as RGBA bytes.
-/// Used as a fallback if no icon asset is available.
-pub fn generate_default_icon() -> (Vec<u8>, u32, u32) {
-    let size: u32 = 32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-
-    for y in 0..size {
-        for x in 0..size {
-            let r: u8 = 137; // #89b4fa accent color
-            let g: u8 = 180;
-            let b: u8 = 250;
-            let a: u8 = if x < 2 || x >= size - 2 || y < 2 || y >= size - 2 {
-                255
-            } else {
-                let dx = (x as f32 - size as f32 / 2.0).abs() / (size as f32 / 2.0);
-                let dy = (y as f32 - size as f32 / 2.0).abs() / (size as f32 / 2.0);
-                let dist = (dx * dx + dy * dy).sqrt().min(1.0);
-                (255.0 * (1.0 - dist * 0.3)) as u8
-            };
-
-            rgba.push(r);
-            rgba.push(g);
-            rgba.push(b);
-            rgba.push(a);
+/// Load the embedded Fade icon PNG as RGBA bytes for the tray icon.
+#[cfg(target_os = "windows")]
+pub fn load_icon() -> (Vec<u8>, u32, u32) {
+    let png_bytes = include_bytes!("../ui/Fade Icon.png");
+    match image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png) {
+        Ok(img) => {
+            let rgba_img = img.to_rgba8();
+            let width = rgba_img.width();
+            let height = rgba_img.height();
+            (rgba_img.into_raw(), width, height)
+        }
+        Err(e) => {
+            log::warn!("Failed to load embedded icon: {}, using fallback", e);
+            generate_fallback_icon()
         }
     }
+}
 
+#[cfg(not(target_os = "windows"))]
+pub fn load_icon() -> (Vec<u8>, u32, u32) {
+    generate_fallback_icon()
+}
+
+/// Simple solid color square as RGBA bytes — fallback if PNG fails to load.
+fn generate_fallback_icon() -> (Vec<u8>, u32, u32) {
+    let size: u32 = 32;
+    let mut rgba = vec![0u8; (size * size * 4) as usize];
+    for i in 0..(size * size) as usize {
+        rgba[i * 4] = 137;     // R — #89b4fa
+        rgba[i * 4 + 1] = 180; // G
+        rgba[i * 4 + 2] = 250; // B
+        rgba[i * 4 + 3] = 255; // A
+    }
     (rgba, size, size)
 }
