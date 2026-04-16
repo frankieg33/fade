@@ -31,8 +31,10 @@ export struct BucketModel {
 export component SettingsWindow inherits Window {
     title: "Fade — Settings";
     icon: @image-url("Fade Icon.png");
-    width: 700px;
-    height: 500px;
+    preferred-width: 700px;
+    preferred-height: 500px;
+    min-width: 500px;
+    min-height: 400px;
     background: FadeTheme.bg;
 
     // Properties bound from Rust
@@ -81,14 +83,15 @@ export component SettingsWindow inherits Window {
                     VerticalBox {
                         spacing: 4px;
                         for rule[idx] in root.app-rules: Rectangle {
-                            height: 40px;
+                            height: 36px;
                             border-radius: FadeTheme.radius;
                             background: FadeTheme.surface;
 
                             HorizontalBox {
-                                padding: FadeTheme.spacing;
-                                spacing: FadeTheme.spacing;
-                                alignment: center;
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 6px;
+                                alignment: stretch;
 
                                 CheckBox {
                                     checked: rule.enabled;
@@ -97,32 +100,35 @@ export component SettingsWindow inherits Window {
                                 Text {
                                     text: rule.icon;
                                     font-family: "Symbols Nerd Font Mono";
-                                    font-size: 16px;
+                                    font-size: 14px;
                                     color: FadeTheme.accent;
                                     vertical-alignment: center;
-                                    width: 24px;
+                                    width: 20px;
                                 }
                                 Text {
                                     text: rule.process;
                                     color: FadeTheme.text;
+                                    font-size: 13px;
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
+                                    overflow: elide;
                                 }
                                 Text {
                                     text: Math.round(rule-slider.value) * 5 + "";
                                     color: FadeTheme.text;
-                                    width: 30px;
-                                    font-size: 13px;
+                                    width: 28px;
+                                    font-size: 12px;
                                     horizontal-alignment: right;
                                     vertical-alignment: center;
                                 }
                                 Text {
                                     text: "min";
                                     color: FadeTheme.text-dim;
+                                    font-size: 12px;
                                     vertical-alignment: center;
                                 }
                                 rule-slider := Slider {
-                                    width: 120px;
+                                    width: 100px;
                                     minimum: 1;
                                     maximum: 24;
                                     value: Math.ceil(rule.timeout-mins / 5);
@@ -131,14 +137,14 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 ComboBox {
-                                    width: 100px;
+                                    width: 90px;
                                     model: ["minimize", "close"];
                                     current-value: rule.action;
                                     selected(val) => { root.update-rule-action(idx, val); }
                                 }
                                 Rectangle {
-                                    width: 28px;
-                                    height: 28px;
+                                    width: 24px;
+                                    height: 24px;
                                     border-radius: 4px;
                                     background: remove-ta.has-hover ? FadeTheme.danger : transparent;
                                     remove-ta := TouchArea {
@@ -148,7 +154,7 @@ export component SettingsWindow inherits Window {
                                     Text {
                                         text: "✕";
                                         color: remove-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
-                                        font-size: 14px;
+                                        font-size: 12px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                     }
@@ -202,19 +208,23 @@ export component SettingsWindow inherits Window {
                     border-width: 1px;
                     border-color: FadeTheme.border;
                     HorizontalBox {
-                        padding: FadeTheme.spacing;
-                        Text { text: "Process"; color: FadeTheme.tab-active-text; width: 150px; font-size: 12px; font-weight: 600; }
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 4px;
+                        Text { text: ""; width: 18px; }
+                        Text { text: "Process"; color: FadeTheme.tab-active-text; width: 130px; font-size: 12px; font-weight: 600; }
                         Text { text: "Title"; color: FadeTheme.tab-active-text; horizontal-stretch: 1; font-size: 12px; font-weight: 600; }
-                        Text { text: "Idle"; color: FadeTheme.tab-active-text; width: 80px; font-size: 12px; font-weight: 600; }
-                        Text { text: ""; width: 40px; }
+                        Text { text: "Idle"; color: FadeTheme.tab-active-text; width: 50px; font-size: 12px; font-weight: 600; horizontal-alignment: right; }
+                        Text { text: ""; width: 32px; }
                     }
                 }
 
                 property <string> context-process;
+                property <length> context-y: 0px;
 
                 context-menu := PopupWindow {
-                    x: 0px;
-                    y: 0px;
+                    x: 100px;
+                    y: context-y;
                     Rectangle {
                         background: FadeTheme.context-menu-bg;
                         border-radius: FadeTheme.radius;
@@ -285,20 +295,24 @@ export component SettingsWindow inherits Window {
                                 pointer-event(event) => {
                                     if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
                                         context-process = win.process;
+                                        context-y = ta.mouse-y + idx * 34px + 100px;
                                         context-menu.show();
                                     }
                                 }
                             }
 
                             HorizontalBox {
-                                padding: FadeTheme.spacing;
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 4px;
+                                alignment: center;
                                 Text {
                                     text: win.icon;
                                     font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     color: FadeTheme.accent;
                                     vertical-alignment: center;
-                                    width: 20px;
+                                    width: 18px;
                                 }
                                 Text {
                                     text: win.process;
@@ -319,21 +333,24 @@ export component SettingsWindow inherits Window {
                                 Text {
                                     text: win.idle-secs >= 60 ? Math.floor(win.idle-secs / 60) + "m" : win.idle-secs + "s";
                                     color: win.idle-secs > 300 ? FadeTheme.warning : FadeTheme.text-dim;
-                                    width: 80px;
+                                    width: 50px;
                                     font-size: 12px;
                                     vertical-alignment: center;
+                                    horizontal-alignment: right;
                                 }
-                                if win.managed: Text {
-                                    text: "✓";
-                                    color: FadeTheme.success;
-                                    width: 40px;
-                                    font-size: 14px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
+                                if win.managed: Rectangle {
+                                    width: 32px;
+                                    Text {
+                                        text: "✓";
+                                        color: FadeTheme.success;
+                                        font-size: 13px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                                 if !win.managed: Rectangle {
-                                    width: 40px;
-                                    height: 24px;
+                                    width: 32px;
+                                    height: 22px;
                                     border-radius: 4px;
                                     background: add-btn-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
                                     border-width: 1px;
@@ -347,7 +364,7 @@ export component SettingsWindow inherits Window {
                                     Text {
                                         text: "+";
                                         color: add-btn-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
-                                        font-size: 14px;
+                                        font-size: 13px;
                                         font-weight: 700;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
