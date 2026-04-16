@@ -31,8 +31,23 @@ pub fn process_icon(process: &str) -> &'static str {
         "steam.exe" => "\u{F04A5}",
         "epicgameslauncher.exe" => "\u{F0E52}",
         "galaxyclient.exe" => "\u{F0E52}",
+        // System / Utilities
+        "explorer.exe" => "\u{F024B}", // nf-md-folder
+        "notepad.exe" | "notepad++.exe" => "\u{F0219}", // nf-md-file-document
+        "rustdesk.exe" => "\u{F0379}", // nf-md-monitor
+        "powershell.exe" | "pwsh.exe" => "\u{F018D}", // nf-md-console
+        "cmd.exe" => "\u{F018D}",
+        "windowsterminal.exe" => "\u{F018D}",
+        "mstsc.exe" => "\u{F0379}", // nf-md-monitor (remote desktop)
+        "taskmgr.exe" => "\u{F035C}", // nf-md-memory
+        "winword.exe" => "\u{F021B}", // nf-md-file-word
+        "excel.exe" => "\u{F021F}", // nf-md-file-excel
+        "powerpnt.exe" => "\u{F0227}", // nf-md-file-powerpoint
+        "outlook.exe" => "\u{F0D22}", // nf-md-email
+        "codex.exe" => "\u{F018D}", // nf-md-console
+        "antigravity.exe" => "\u{F0E52}", // nf-md-gamepad-variant
         // Fallback
-        _ => "\u{F0483}", // nf-md-web (generic window icon)
+        _ => "\u{F0485}", // nf-md-window-maximize
     }
 }
 

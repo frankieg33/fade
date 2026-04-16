@@ -50,7 +50,6 @@ impl Default for General {
             polling_interval_secs: 30,
             auto_start: false,
             hidden_processes: vec![
-                "explorer.exe".into(),
                 "SearchHost.exe".into(),
                 "StartMenuExperienceHost.exe".into(),
                 "ShellExperienceHost.exe".into(),
@@ -401,8 +400,8 @@ mod tests {
     #[test]
     fn test_is_hidden() {
         let config = Config::default_config();
-        assert!(config.is_hidden("explorer.exe"));
-        assert!(config.is_hidden("Explorer.EXE"));
+        assert!(config.is_hidden("SearchHost.exe"));
+        assert!(config.is_hidden("SEARCHHOST.EXE"));
         assert!(!config.is_hidden("chrome.exe"));
     }
 
