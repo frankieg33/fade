@@ -19,6 +19,9 @@ pub type ForegroundTimestamps = Arc<Mutex<HashMap<String, Instant>>>;
 #[derive(Debug, Clone)]
 pub struct ActiveWindowSnapshot {
     pub process: String,
+    /// Kept for potential future UI use (tooltips, per-window detail).
+    /// The current unified UI dedupes by process and does not display titles.
+    #[allow(dead_code)]
     pub title: String,
     pub idle_secs: u64,
 }
