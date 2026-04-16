@@ -9,17 +9,11 @@ mod winapi;
 
 use config::{Action, Config};
 use monitor::{ActiveWindowSnapshot, Monitor};
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use winapi::Win32Api;
 
 slint::include_modules!();
-
-/// The settings window slot — `None` when the window is closed, `Some` while open.
-/// Lazy-creation reclaims RAM when the user isn't looking at the settings.
-type WindowSlot = Rc<RefCell<Option<SettingsWindow>>>;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -39,10 +33,33 @@ fn main() {
         Arc::new(Mutex::new(std::collections::HashMap::new()));
     let window_visible = Arc::new(AtomicBool::new(false));
 
-    // Lazy-created settings window slot. Starts empty — the window is created
-    // only when the user opens it from the tray, and dropped again on close to
-    // reclaim RAM.
-    let window_slot: WindowSlot = Rc::new(RefCell::new(None));
+    // Create Slint window (but don't show it yet)
+    let window = match SettingsWindow::new() {
+        Ok(w) => w,
+        Err(e) => {
+            log::error!("Failed to create settings window: {}", e);
+            // Continue headless — tray only
+            run_headless(config, paused, should_stop);
+            return;
+        }
+    };
+
+    // Populate GUI from config
+    update_gui_from_config(&window, &config.read().unwrap());
+
+    // Wire up GUI callbacks
+    setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone());
+
+    // Close hides to tray — does NOT quit
+    let window_weak = window.as_weak();
+    let visible_for_close = window_visible.clone();
+    window.window().on_close_requested(move || {
+        if let Some(w) = window_weak.upgrade() {
+            w.hide().ok();
+        }
+        visible_for_close.store(false, Ordering::Relaxed);
+        slint::CloseRequestResponse::KeepWindowShown
+    });
 
     // Load app icon for tray
     let (icon_rgba, icon_w, icon_h) = tray::load_icon();
@@ -57,60 +74,37 @@ fn main() {
         }
         Err(e) => {
             log::error!("Failed to create tray icon: {}", e);
-            // No tray — create the settings window immediately and keep it
-            // alive (the user has no other entry point).
-            if let Err(e) = open_settings_window(
-                &window_slot,
-                &config,
-                &snapshot_buffer,
-                &paused,
-                &window_visible,
-            ) {
-                log::error!("Failed to create fallback settings window: {}", e);
-                run_headless(config, paused, should_stop);
-                return;
-            }
+            // Show the settings window since there's no tray
+            window.show().ok();
             None
         }
     };
 
     // Poll tray events via Slint timer
-    let slot_for_tray = window_slot.clone();
+    let window_weak = window.as_weak();
     let paused_for_tray = paused.clone();
     let config_for_tray = config.clone();
-    let snapshot_for_tray = snapshot_buffer.clone();
     let visible_for_tray = window_visible.clone();
     let tray_timer = slint::Timer::default();
     tray_timer.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_millis(100),
         move || {
-            // Deferred drop: if the window was closed, reclaim it now (safe
-            // because we're outside the close_requested callback).
-            if !visible_for_tray.load(Ordering::Relaxed)
-                && slot_for_tray.borrow().is_some()
-            {
-                *slot_for_tray.borrow_mut() = None;
-                log::debug!("Settings window dropped (idle RAM reclaimed)");
-            }
-
             match tray::poll_tray_events() {
                 tray::TrayAction::ShowSettings => {
-                    if let Err(e) = open_settings_window(
-                        &slot_for_tray,
-                        &config_for_tray,
-                        &snapshot_for_tray,
-                        &paused_for_tray,
-                        &visible_for_tray,
-                    ) {
-                        log::error!("Failed to open settings window: {}", e);
+                    if let Some(w) = window_weak.upgrade() {
+                        if let Ok(cfg) = config_for_tray.read() {
+                            update_gui_from_config(&w, &cfg);
+                        }
+                        w.show().ok();
+                        visible_for_tray.store(true, Ordering::Relaxed);
                     }
                 }
                 tray::TrayAction::TogglePause => {
                     let was_paused = paused_for_tray.load(Ordering::Relaxed);
                     let new_state = !was_paused;
                     paused_for_tray.store(new_state, Ordering::Relaxed);
-                    if let Some(w) = slot_for_tray.borrow().as_ref() {
+                    if let Some(w) = window_weak.upgrade() {
                         w.set_paused(new_state);
                     }
                     log::info!("Monitoring {}", if was_paused { "resumed" } else { "paused" });
@@ -128,7 +122,7 @@ fn main() {
     let snapshot_for_gui = snapshot_buffer.clone();
     let config_for_gui = config.clone();
     let visible_for_gui = window_visible.clone();
-    let slot_for_gui = window_slot.clone();
+    let gui_weak = window.as_weak();
     let gui_refresh_timer = slint::Timer::default();
     gui_refresh_timer.start(
         slint::TimerMode::Repeated,
@@ -137,9 +131,9 @@ fn main() {
             if !visible_for_gui.load(Ordering::Relaxed) {
                 return;
             }
-            if let Some(w) = slot_for_gui.borrow().as_ref() {
+            if let Some(w) = gui_weak.upgrade() {
                 if let Ok(cfg) = config_for_gui.read() {
-                    refresh_active_windows(w, &cfg, &snapshot_for_gui);
+                    refresh_active_windows(&w, &cfg, &snapshot_for_gui);
                 }
             }
         },
@@ -185,56 +179,6 @@ fn main() {
     }
 
     log::info!("Fade stopped");
-}
-
-/// Show the settings window, creating it first if the slot is empty.
-///
-/// On a fresh open: creates the `SettingsWindow`, populates it from config,
-/// wires callbacks, installs the close-requested handler (which drops the
-/// window back to `None`), and shows it. On a repeat open with the window
-/// already alive: just refreshes data and shows.
-fn open_settings_window(
-    slot: &WindowSlot,
-    config: &Arc<RwLock<Config>>,
-    snapshot_buffer: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
-    paused: &Arc<AtomicBool>,
-    window_visible: &Arc<AtomicBool>,
-) -> Result<(), slint::PlatformError> {
-    // If already open, just refresh and re-show.
-    if let Some(w) = slot.borrow().as_ref() {
-        if let Ok(cfg) = config.read() {
-            update_gui_from_config(w, &cfg);
-            refresh_active_windows(w, &cfg, snapshot_buffer);
-        }
-        w.set_paused(paused.load(Ordering::Relaxed));
-        w.show()?;
-        window_visible.store(true, Ordering::Relaxed);
-        return Ok(());
-    }
-
-    // Fresh create.
-    let window = SettingsWindow::new()?;
-    if let Ok(cfg) = config.read() {
-        update_gui_from_config(&window, &cfg);
-        refresh_active_windows(&window, &cfg, snapshot_buffer);
-    }
-    window.set_paused(paused.load(Ordering::Relaxed));
-    setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone());
-
-    // Close hides the window. The actual drop happens on the next tray timer
-    // tick — we can't drop the window from inside its own close_requested
-    // callback (the callback closure is owned by the window). Flipping
-    // `window_visible` to false signals the tray timer to clear the slot.
-    let visible_for_close = window_visible.clone();
-    window.window().on_close_requested(move || {
-        visible_for_close.store(false, Ordering::Relaxed);
-        slint::CloseRequestResponse::HideWindow
-    });
-
-    window.show()?;
-    window_visible.store(true, Ordering::Relaxed);
-    *slot.borrow_mut() = Some(window);
-    Ok(())
 }
 
 /// Check if a process exists in any bucket.
