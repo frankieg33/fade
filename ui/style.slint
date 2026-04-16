@@ -17,12 +17,27 @@ export global FadeTheme {
     // Input fields
     out property <color> input-bg: #181825;
 
-    // Tab bar
+    // Legacy tab bar (kept for old main.slint; removed in UI rewrite)
     out property <color> tab-active-text: #89b4fa;
 
-    // Context menu
-    out property <color> context-menu-bg: #181825f2;  // 95% alpha
+    // Legacy context menu (kept for old main.slint; removed in UI rewrite)
+    out property <color> context-menu-bg: #181825f2;
     out property <color> context-menu-hover: #313244;
+
+    // Sidebar
+    out property <color> sidebar-bg: #181825;
+    out property <color> sidebar-active: #313244;
+    out property <color> sidebar-text: #a6adc8;
+    out property <color> sidebar-active-text: #89b4fa;
+    out property <length> sidebar-width: 200px;
+
+    // Group cards
+    out property <color> card-bg: #262637;
+    out property <color> card-header-bg: #2a2a3d;
+
+    // Drawer (Active Processes panel)
+    out property <color> drawer-bg: #1a1a2e;
+    out property <color> drawer-border: #585b70;
 
     // Status bar
     out property <color> status-bar-bg: #11111b;
