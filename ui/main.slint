@@ -1,572 +1,96 @@
 import { FadeTheme } from "style.slint";
-import { Button, VerticalBox, HorizontalBox, TabWidget, LineEdit, ComboBox, CheckBox, Slider, ScrollView, StandardListView, GridBox } from "std-widgets.slint";
+import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox, CheckBox, Slider, ScrollView } from "std-widgets.slint";
 import "SymbolsNerdFontMono-Regular.ttf";
 
-// Data models passed between Rust and Slint
-export struct AppRuleModel {
-    icon: string,
-    process: string,
-    timeout-mins: int,
-    action: string,    // "minimize" or "close"
-    enabled: bool,
+// An application row inside a group card
+export struct GroupAppModel {
+    icon: string,           // Nerd Font glyph
+    process: string,        // e.g. "chrome.exe"
+    customized: bool,       // true if an app_rule overrides the group
+    enabled: bool,          // from app_rule if customized, else bucket.enabled
+    timeout-mins: int,      // from app_rule if customized, else bucket value
+    action: string,         // from app_rule if customized, else bucket value
 }
 
-export struct ActiveWindowModel {
-    icon: string,
-    process: string,
-    title: string,
-    idle-secs: int,
-    managed: bool,
+// A group card (bucket)
+export struct GroupModel {
+    icon: string,           // Nerd Font bucket icon
+    name: string,           // e.g. "Browsing"
+    enabled: bool,          // bucket.enabled
+    timeout-mins: int,      // bucket.timeout_mins
+    action: string,         // bucket.action
+    apps: [GroupAppModel],  // processes in this bucket
 }
 
-export struct BucketModel {
+// An unassigned app rule (not in any bucket)
+export struct UnassignedRuleModel {
     icon: string,
-    name: string,
+    process: string,
     timeout-mins: int,
     action: string,
     enabled: bool,
-    processes: string,
+}
+
+// Active process in the drawer
+export struct ActiveProcessModel {
+    icon: string,
+    process: string,
+    managed: bool,          // already has a rule or is in a bucket
 }
 
 export component SettingsWindow inherits Window {
-    title: "Fade — Settings";
+    title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
-    preferred-width: 700px;
-    preferred-height: 500px;
-    min-width: 500px;
+    preferred-width: 800px;
+    preferred-height: 560px;
+    min-width: 600px;
     min-height: 400px;
     background: FadeTheme.bg;
 
     // Properties bound from Rust
-    in property <[AppRuleModel]> app-rules;
-    in property <[ActiveWindowModel]> active-windows;
-    in property <[BucketModel]> buckets;
+    in property <[GroupModel]> groups;
+    in property <[UnassignedRuleModel]> unassigned-rules;
+    in property <[ActiveProcessModel]> active-processes;
+    in property <int> managed-count: 0;
+    in property <int> active-count: 0;
     in property <int> polling-interval-secs: 30;
     in property <bool> auto-start: false;
     in property <string> version: "0.0.0";
     in-out property <bool> paused: false;
 
-    // Callbacks to Rust
+    // Navigation state
+    in-out property <int> current-page: 0; // 0 = Applications & Rules, 1 = General Settings
+
+    // Search
+    in-out property <string> search-text: "";
+
+    // Drawer visibility
+    in-out property <bool> drawer-open: false;
+
+    // Group callbacks
+    callback toggle-group(int /* group idx */, bool /* enabled */);
+    callback update-group-timeout(int /* group idx */, int /* mins */);
+    callback update-group-action(int /* group idx */, string /* action */);
+    callback add-app-to-group(int /* group idx */, string /* process */);
+
+    // App-in-group callbacks
+    callback customize-app(int /* group idx */, int /* app idx */);
+    callback reset-app-to-group(int /* group idx */, int /* app idx */);
+    callback update-app-timeout(int /* group idx */, int /* app idx */, int /* mins */);
+    callback update-app-action(int /* group idx */, int /* app idx */, string /* action */);
+    callback toggle-app(int /* group idx */, int /* app idx */, bool /* enabled */);
+
+    // Unassigned rule callbacks
+    callback remove-unassigned(int /* idx */);
+    callback toggle-unassigned(int /* idx */, bool /* enabled */);
+    callback update-unassigned-timeout(int /* idx */, int /* mins */);
+    callback update-unassigned-action(int /* idx */, string /* action */);
+
+    // Drawer callbacks
     callback add-rule(string /* process */);
-    callback remove-rule(int /* index */);
-    callback toggle-rule(int /* index */, bool /* enabled */);
-    callback update-rule-timeout(int /* index */, int /* mins */);
-    callback update-rule-action(int /* index */, string /* action */);
-    callback hide-process(string /* process */);
-    callback toggle-bucket(int /* index */, bool /* enabled */);
-    callback update-bucket-timeout(int /* index */, int /* mins */);
-    callback update-bucket-action(int /* index */, string /* action */);
+    callback add-process-name(string /* process */);
+
+    // General settings callbacks
     callback set-polling-interval(int /* secs */);
     callback set-auto-start(bool);
-
-    TabWidget {
-        Tab {
-            title: "Rules";
-            VerticalBox {
-                padding: FadeTheme.spacing * 2;
-                spacing: FadeTheme.spacing;
-
-                Text {
-                    text: "Managed Applications";
-                    color: FadeTheme.text;
-                    font-size: 16px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: "Apps listed here will be minimized or closed after their idle timeout.";
-                    color: FadeTheme.text-dim;
-                    font-size: 12px;
-                }
-
-                ScrollView {
-                    vertical-stretch: 1;
-                    VerticalBox {
-                        spacing: 4px;
-                        for rule[idx] in root.app-rules: Rectangle {
-                            height: 36px;
-                            border-radius: FadeTheme.radius;
-                            background: FadeTheme.surface;
-
-                            HorizontalBox {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                spacing: 6px;
-                                alignment: stretch;
-
-                                CheckBox {
-                                    checked: rule.enabled;
-                                    toggled => { root.toggle-rule(idx, self.checked); }
-                                }
-                                Text {
-                                    text: rule.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
-                                    color: FadeTheme.accent;
-                                    vertical-alignment: center;
-                                    width: 20px;
-                                }
-                                Text {
-                                    text: rule.process;
-                                    color: FadeTheme.text;
-                                    font-size: 13px;
-                                    vertical-alignment: center;
-                                    horizontal-stretch: 1;
-                                    overflow: elide;
-                                }
-                                Text {
-                                    text: Math.round(rule-slider.value) * 5 + "";
-                                    color: FadeTheme.text;
-                                    width: 28px;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                }
-                                Text {
-                                    text: "min";
-                                    color: FadeTheme.text-dim;
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                }
-                                rule-slider := Slider {
-                                    width: 100px;
-                                    minimum: 1;
-                                    maximum: 24;
-                                    value: Math.ceil(rule.timeout-mins / 5);
-                                    changed(val) => {
-                                        root.update-rule-timeout(idx, Math.round(val) * 5);
-                                    }
-                                }
-                                ComboBox {
-                                    width: 90px;
-                                    model: ["minimize", "close"];
-                                    current-value: rule.action;
-                                    selected(val) => { root.update-rule-action(idx, val); }
-                                }
-                                Rectangle {
-                                    width: 24px;
-                                    height: 24px;
-                                    border-radius: 4px;
-                                    background: remove-ta.has-hover ? FadeTheme.danger : transparent;
-                                    remove-ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.remove-rule(idx); }
-                                    }
-                                    Text {
-                                        text: "✕";
-                                        color: remove-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
-                                        font-size: 12px;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                HorizontalBox {
-                    spacing: FadeTheme.spacing;
-                    alignment: end;
-                    add-input := LineEdit {
-                        horizontal-stretch: 1;
-                        placeholder-text: "process.exe";
-                    }
-                    Button {
-                        text: "Add Rule";
-                        clicked => {
-                            root.add-rule(add-input.text);
-                            add-input.text = "";
-                        }
-                    }
-                }
-            }
-        }
-
-        Tab {
-            title: "Active Windows";
-            VerticalBox {
-                padding: FadeTheme.spacing * 2;
-                spacing: FadeTheme.spacing;
-
-                Text {
-                    text: "Currently Open Windows";
-                    color: FadeTheme.text;
-                    font-size: 16px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: "Sorted by idle time (longest first). Right-click to add a rule or hide.";
-                    color: FadeTheme.text-dim;
-                    font-size: 12px;
-                }
-
-                // Header row
-                Rectangle {
-                    height: 30px;
-                    background: FadeTheme.surface;
-                    border-radius: FadeTheme.radius;
-                    border-width: 1px;
-                    border-color: FadeTheme.border;
-                    HorizontalBox {
-                        padding-left: 8px;
-                        padding-right: 8px;
-                        spacing: 4px;
-                        Text { text: ""; width: 18px; }
-                        Text { text: "Process"; color: FadeTheme.tab-active-text; width: 130px; font-size: 12px; font-weight: 600; }
-                        Text { text: "Title"; color: FadeTheme.tab-active-text; horizontal-stretch: 1; font-size: 12px; font-weight: 600; }
-                        Text { text: "Idle"; color: FadeTheme.tab-active-text; width: 50px; font-size: 12px; font-weight: 600; horizontal-alignment: right; }
-                        Text { text: ""; width: 32px; }
-                    }
-                }
-
-                property <string> context-process;
-                property <length> context-y: 0px;
-
-                context-menu := PopupWindow {
-                    x: 100px;
-                    y: context-y;
-                    Rectangle {
-                        background: FadeTheme.context-menu-bg;
-                        border-radius: FadeTheme.radius;
-                        border-width: 1px;
-                        border-color: FadeTheme.border;
-                        drop-shadow-blur: 12px;
-                        drop-shadow-color: #00000088;
-                        width: 160px;
-                        height: 64px;
-
-                        VerticalBox {
-                            padding: 4px;
-                            spacing: 2px;
-
-                            Rectangle {
-                                height: 28px;
-                                border-radius: 4px;
-                                background: add-ta.has-hover ? FadeTheme.context-menu-hover : transparent;
-                                add-ta := TouchArea {
-                                    clicked => {
-                                        root.add-rule(context-process);
-                                    }
-                                }
-                                HorizontalBox {
-                                    padding-left: 8px;
-                                    Text {
-                                        text: "Add Rule";
-                                        color: add-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                height: 28px;
-                                border-radius: 4px;
-                                background: hide-ta.has-hover ? FadeTheme.context-menu-hover : transparent;
-                                hide-ta := TouchArea {
-                                    clicked => {
-                                        root.hide-process(context-process);
-                                    }
-                                }
-                                HorizontalBox {
-                                    padding-left: 8px;
-                                    Text {
-                                        text: "Hide";
-                                        color: hide-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                ScrollView {
-                    vertical-stretch: 1;
-                    VerticalBox {
-                        spacing: 2px;
-                        for win[idx] in root.active-windows: Rectangle {
-                            height: 32px;
-                            border-radius: FadeTheme.radius;
-                            background: ta.has-hover ? FadeTheme.surface-hover : Math.mod(idx, 2) == 0 ? FadeTheme.surface : FadeTheme.bg;
-
-                            // Right-click area — must be before HorizontalBox so buttons render on top
-                            ta := TouchArea {
-                                pointer-event(event) => {
-                                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
-                                        context-process = win.process;
-                                        context-y = ta.mouse-y + idx * 34px + 100px;
-                                        context-menu.show();
-                                    }
-                                }
-                            }
-
-                            HorizontalBox {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                spacing: 4px;
-                                alignment: center;
-                                Text {
-                                    text: win.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 13px;
-                                    color: FadeTheme.accent;
-                                    vertical-alignment: center;
-                                    width: 18px;
-                                }
-                                Text {
-                                    text: win.process;
-                                    color: FadeTheme.text;
-                                    width: 130px;
-                                    overflow: elide;
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                }
-                                Text {
-                                    text: win.title;
-                                    color: FadeTheme.text-dim;
-                                    horizontal-stretch: 1;
-                                    overflow: elide;
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                }
-                                Text {
-                                    text: win.idle-secs >= 60 ? Math.floor(win.idle-secs / 60) + "m" : win.idle-secs + "s";
-                                    color: win.idle-secs > 300 ? FadeTheme.warning : FadeTheme.text-dim;
-                                    width: 50px;
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                    horizontal-alignment: right;
-                                }
-                                if win.managed: Rectangle {
-                                    width: 32px;
-                                    Text {
-                                        text: "✓";
-                                        color: FadeTheme.success;
-                                        font-size: 13px;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                                if !win.managed: Rectangle {
-                                    width: 32px;
-                                    height: 22px;
-                                    border-radius: 4px;
-                                    background: add-btn-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
-                                    border-width: 1px;
-                                    border-color: add-btn-ta.has-hover ? FadeTheme.accent : FadeTheme.border;
-                                    add-btn-ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.add-rule(win.process);
-                                        }
-                                    }
-                                    Text {
-                                        text: "+";
-                                        color: add-btn-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
-                                        font-size: 13px;
-                                        font-weight: 700;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Tab {
-            title: "Buckets";
-            VerticalBox {
-                padding: FadeTheme.spacing * 2;
-                spacing: FadeTheme.spacing;
-
-                Text {
-                    text: "App Groups";
-                    color: FadeTheme.text;
-                    font-size: 16px;
-                    font-weight: 600;
-                }
-                Text {
-                    text: "Enable a bucket to manage all its installed apps with one setting.";
-                    color: FadeTheme.text-dim;
-                    font-size: 12px;
-                }
-
-                ScrollView {
-                    vertical-stretch: 1;
-                    VerticalBox {
-                        spacing: FadeTheme.spacing;
-                        for bucket[idx] in root.buckets: Rectangle {
-                            border-radius: FadeTheme.radius;
-                            background: FadeTheme.surface;
-
-                            property <bool> expanded: false;
-
-                            VerticalBox {
-                                padding: FadeTheme.spacing;
-                                spacing: 4px;
-
-                                HorizontalBox {
-                                    spacing: FadeTheme.spacing;
-                                    alignment: center;
-
-                                    CheckBox {
-                                        checked: bucket.enabled;
-                                        toggled => { root.toggle-bucket(idx, self.checked); }
-                                    }
-                                    Text {
-                                        text: bucket.icon;
-                                        font-family: "Symbols Nerd Font Mono";
-                                        font-size: 18px;
-                                        color: FadeTheme.accent;
-                                        vertical-alignment: center;
-                                        width: 24px;
-                                    }
-                                    Text {
-                                        text: bucket.name;
-                                        color: FadeTheme.text;
-                                        font-weight: 600;
-                                        vertical-alignment: center;
-                                        width: 130px;
-                                    }
-                                    Text {
-                                        text: Math.round(bucket-slider.value) * 5 + "";
-                                        color: FadeTheme.text;
-                                        width: 30px;
-                                        font-size: 13px;
-                                        horizontal-alignment: right;
-                                        vertical-alignment: center;
-                                    }
-                                    Text {
-                                        text: "min";
-                                        color: FadeTheme.text-dim;
-                                        vertical-alignment: center;
-                                    }
-                                    bucket-slider := Slider {
-                                        width: 120px;
-                                        minimum: 1;
-                                        maximum: 24;
-                                        value: Math.ceil(bucket.timeout-mins / 5);
-                                        changed(val) => {
-                                            root.update-bucket-timeout(idx, Math.round(val) * 5);
-                                        }
-                                    }
-                                    ComboBox {
-                                        width: 100px;
-                                        model: ["minimize", "close"];
-                                        current-value: bucket.action;
-                                        selected(val) => { root.update-bucket-action(idx, val); }
-                                    }
-                                }
-
-                                // Collapsible app list toggle
-                                Rectangle {
-                                    height: 24px;
-                                    border-radius: 4px;
-                                    background: expand-ta.has-hover ? FadeTheme.surface-hover : transparent;
-                                    expand-ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { expanded = !expanded; }
-                                    }
-                                    HorizontalBox {
-                                        padding-left: 4px;
-                                        spacing: 6px;
-                                        Text {
-                                            text: expanded ? "▼" : "▶";
-                                            color: expand-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                            font-size: 10px;
-                                            vertical-alignment: center;
-                                        }
-                                        Text {
-                                            text: expanded ? "Hide apps" : "Show apps";
-                                            color: expand-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                            font-size: 11px;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                }
-
-                                // Expanded app list
-                                if expanded: Rectangle {
-                                    background: FadeTheme.input-bg;
-                                    border-radius: 4px;
-                                    HorizontalBox {
-                                        padding: FadeTheme.spacing;
-                                        Text {
-                                            text: bucket.processes;
-                                            color: FadeTheme.text-dim;
-                                            font-size: 12px;
-                                            wrap: word-wrap;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Tab {
-            title: "General";
-            VerticalBox {
-                padding: FadeTheme.spacing * 2;
-                spacing: FadeTheme.spacing * 2;
-
-                Text {
-                    text: "General Settings";
-                    color: FadeTheme.text;
-                    font-size: 16px;
-                    font-weight: 600;
-                }
-
-                HorizontalBox {
-                    spacing: FadeTheme.spacing;
-                    Text { text: "Polling interval:"; color: FadeTheme.text; vertical-alignment: center; width: 150px; }
-                    ComboBox {
-                        width: 120px;
-                        model: ["15 sec", "30 sec", "60 sec", "120 sec"];
-                        current-value: root.polling-interval-secs == 15 ? "15 sec" :
-                                       root.polling-interval-secs == 60 ? "60 sec" :
-                                       root.polling-interval-secs == 120 ? "120 sec" :
-                                       root.polling-interval-secs + " sec";
-                        selected(val) => {
-                            if (val == "15 sec") { root.set-polling-interval(15); }
-                            if (val == "30 sec") { root.set-polling-interval(30); }
-                            if (val == "60 sec") { root.set-polling-interval(60); }
-                            if (val == "120 sec") { root.set-polling-interval(120); }
-                        }
-                    }
-                }
-
-                HorizontalBox {
-                    spacing: FadeTheme.spacing;
-                    Text { text: "Start with Windows:"; color: FadeTheme.text; vertical-alignment: center; width: 150px; }
-                    CheckBox {
-                        checked: root.auto-start;
-                        toggled => { root.set-auto-start(self.checked); }
-                    }
-                }
-
-                Rectangle { vertical-stretch: 1; }
-
-                // Status bar
-                Rectangle {
-                    height: 28px;
-                    background: FadeTheme.status-bar-bg;
-                    border-radius: FadeTheme.radius;
-                    Text {
-                        text: "Fade v" + root.version;
-                        color: FadeTheme.status-bar-text;
-                        font-size: 11px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-    }
-}
+    callback hide-process(string /* process */);
