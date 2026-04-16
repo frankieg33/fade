@@ -181,11 +181,56 @@ fn main() {
     log::info!("Fade stopped");
 }
 
-/// Convert config app rules to Slint models.
-fn app_rules_to_models(rules: &[config::AppRule]) -> Vec<AppRuleModel> {
-    rules
-        .iter()
-        .map(|r| AppRuleModel {
+/// Check if a process exists in any bucket.
+fn process_in_any_bucket(config: &Config, process: &str) -> bool {
+    let lower = process.to_lowercase();
+    config.bucket.iter().any(|b| {
+        b.processes.iter().any(|p| p.to_lowercase() == lower)
+    })
+}
+
+/// Find the app_rule for a process, if any.
+fn find_app_rule<'a>(config: &'a Config, process: &str) -> Option<&'a config::AppRule> {
+    let lower = process.to_lowercase();
+    config.app_rule.iter().find(|r| r.process.to_lowercase() == lower)
+}
+
+/// Build GroupModel list from config buckets.
+fn build_groups(config: &Config) -> Vec<GroupModel> {
+    config.bucket.iter().map(|bucket| {
+        let apps: Vec<GroupAppModel> = bucket.processes.iter().map(|proc| {
+            let customized = find_app_rule(config, proc).is_some();
+            let (enabled, timeout, action) = if let Some(rule) = find_app_rule(config, proc) {
+                (rule.enabled, rule.timeout_mins as i32, rule.action.as_str().into())
+            } else {
+                (bucket.enabled, bucket.timeout_mins as i32, bucket.action.as_str().into())
+            };
+            GroupAppModel {
+                icon: icons::process_icon(proc).into(),
+                process: proc.clone().into(),
+                customized,
+                enabled,
+                timeout_mins: timeout,
+                action,
+            }
+        }).collect();
+
+        GroupModel {
+            icon: icons::bucket_icon(&bucket.name).into(),
+            name: bucket.name.clone().into(),
+            enabled: bucket.enabled,
+            timeout_mins: bucket.timeout_mins as i32,
+            action: bucket.action.as_str().into(),
+            apps: std::rc::Rc::new(slint::VecModel::from(apps)).into(),
+        }
+    }).collect()
+}
+
+/// Build unassigned rules — app_rules whose process isn't in any bucket.
+fn build_unassigned_rules(config: &Config) -> Vec<UnassignedRuleModel> {
+    config.app_rule.iter()
+        .filter(|r| !process_in_any_bucket(config, &r.process))
+        .map(|r| UnassignedRuleModel {
             icon: icons::process_icon(&r.process).into(),
             process: r.process.clone().into(),
             timeout_mins: r.timeout_mins as i32,
@@ -195,58 +240,59 @@ fn app_rules_to_models(rules: &[config::AppRule]) -> Vec<AppRuleModel> {
         .collect()
 }
 
+/// Count total managed apps (enabled bucket apps + enabled unassigned rules).
+fn count_managed(config: &Config) -> i32 {
+    let bucket_count: usize = config.bucket.iter()
+        .filter(|b| b.enabled)
+        .map(|b| b.processes.iter().filter(|p| {
+            // Count if no custom rule, OR if custom rule is enabled
+            match find_app_rule(config, p) {
+                Some(rule) => rule.enabled,
+                None => true,
+            }
+        }).count())
+        .sum();
+    let unassigned_count = config.app_rule.iter()
+        .filter(|r| r.enabled && !process_in_any_bucket(config, &r.process))
+        .count();
+    (bucket_count + unassigned_count) as i32
+}
+
 /// Populate Slint GUI properties from the Config struct.
 fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
-    // App rules
-    let rules = app_rules_to_models(&config.app_rule);
-    window.set_app_rules(std::rc::Rc::new(slint::VecModel::from(rules)).into());
+    let groups = build_groups(config);
+    window.set_groups(std::rc::Rc::new(slint::VecModel::from(groups)).into());
 
-    // Buckets
-    let buckets: Vec<BucketModel> = config
-        .bucket
-        .iter()
-        .map(|b| {
-            let annotated_procs = b.processes.iter()
-                .map(|p| format!("{} {}", icons::process_icon(p), p))
-                .collect::<Vec<_>>()
-                .join(",  ");
-            BucketModel {
-                icon: icons::bucket_icon(&b.name).into(),
-                name: b.name.clone().into(),
-                timeout_mins: b.timeout_mins as i32,
-                action: b.action.as_str().into(),
-                enabled: b.enabled,
-                processes: annotated_procs.into(),
-            }
-        })
-        .collect();
-    window.set_buckets(std::rc::Rc::new(slint::VecModel::from(buckets)).into());
+    let unassigned = build_unassigned_rules(config);
+    window.set_unassigned_rules(std::rc::Rc::new(slint::VecModel::from(unassigned)).into());
 
-    // General
+    window.set_managed_count(count_managed(config));
     window.set_polling_interval_secs(config.general.polling_interval_secs as i32);
     window.set_auto_start(config.general.auto_start);
     window.set_version(env!("CARGO_PKG_VERSION").into());
 }
 
-/// Refresh the active windows model in the GUI using current config + snapshot buffer.
+/// Refresh the active processes in the drawer + active count.
 fn refresh_active_windows(
     window: &SettingsWindow,
     config: &Config,
     snapshot_buffer: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
 ) {
     if let Ok(buf) = snapshot_buffer.lock() {
-        let models: Vec<ActiveWindowModel> = buf
+        // Deduplicate by process name (keep first occurrence)
+        let mut seen = std::collections::HashSet::new();
+        let models: Vec<ActiveProcessModel> = buf
             .iter()
             .filter(|s| !config.is_hidden(&s.process))
-            .map(|s| ActiveWindowModel {
+            .filter(|s| seen.insert(s.process.to_lowercase()))
+            .map(|s| ActiveProcessModel {
                 icon: icons::process_icon(&s.process).into(),
                 process: s.process.clone().into(),
-                title: s.title.clone().into(),
-                idle_secs: s.idle_secs as i32,
-                managed: config.resolve_process(&s.process.to_lowercase()).is_some(),
+                managed: config.resolve_process(&s.process).is_some(),
             })
             .collect();
-        window.set_active_windows(
+        window.set_active_count(models.len() as i32);
+        window.set_active_processes(
             std::rc::Rc::new(slint::VecModel::from(models)).into(),
         );
     }
