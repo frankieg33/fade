@@ -257,13 +257,375 @@ export component SettingsWindow inherits Window {
                     font-weight: 600;
                 }
 
-                // ── GROUPS scroll area ── (placeholder — Task 4 fills this)
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalBox {
                         spacing: 12px;
-                        // GROUP CARDS GO HERE (Task 4)
-                        // UNASSIGNED RULES GO HERE (Task 5)
+
+                        // ── Group cards ──
+                        for group[g-idx] in root.groups: Rectangle {
+                            border-radius: FadeTheme.radius;
+                            background: FadeTheme.card-bg;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
+
+                            property <bool> expanded: true;
+
+                            VerticalBox {
+                                padding: 0px;
+                                spacing: 0px;
+
+                                // Card header
+                                Rectangle {
+                                    height: 44px;
+                                    border-radius: FadeTheme.radius;
+                                    background: FadeTheme.card-header-bg;
+
+                                    HorizontalBox {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+
+                                        CheckBox {
+                                            checked: group.enabled;
+                                            toggled => { root.toggle-group(g-idx, self.checked); }
+                                        }
+                                        Text {
+                                            text: group.icon;
+                                            font-family: "Symbols Nerd Font Mono";
+                                            font-size: 16px;
+                                            color: FadeTheme.accent;
+                                            vertical-alignment: center;
+                                            width: 22px;
+                                        }
+                                        Text {
+                                            text: group.name;
+                                            color: FadeTheme.text;
+                                            font-size: 14px;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                            horizontal-stretch: 1;
+                                        }
+                                        // Group timeout
+                                        Text {
+                                            text: Math.round(grp-slider.value) * 5 + " min";
+                                            color: FadeTheme.text;
+                                            font-size: 12px;
+                                            width: 48px;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                        grp-slider := Slider {
+                                            width: 100px;
+                                            minimum: 1;
+                                            maximum: 24;
+                                            value: Math.ceil(group.timeout-mins / 5);
+                                            changed(val) => {
+                                                root.update-group-timeout(g-idx, Math.round(val) * 5);
+                                            }
+                                        }
+                                        ComboBox {
+                                            width: 95px;
+                                            model: ["minimize", "close"];
+                                            current-value: group.action;
+                                            selected(val) => { root.update-group-action(g-idx, val); }
+                                        }
+                                        // Expand/collapse toggle
+                                        Rectangle {
+                                            width: 24px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            background: exp-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                            exp-ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { expanded = !expanded; }
+                                            }
+                                            Text {
+                                                text: "\u{F03EB}";
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 14px;
+                                                color: exp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // "+ Add app to this group" link
+                                if expanded: Rectangle {
+                                    height: 28px;
+                                    HorizontalBox {
+                                        padding-left: 16px;
+                                        spacing: 4px;
+                                        add-to-grp-ta := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.drawer-open = true;
+                                            }
+                                        }
+                                        Text {
+                                            text: "+ Add app to this group";
+                                            color: add-to-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // App rows within this group
+                                if expanded: VerticalBox {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 2px;
+
+                                    for app[a-idx] in group.apps: Rectangle {
+                                        height: app.customized ? 64px : 34px;
+                                        border-radius: 4px;
+                                        background: app-row-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
+                                        app-row-ta := TouchArea {}
+
+                                        VerticalBox {
+                                            padding: 0px;
+                                            spacing: 0px;
+
+                                            // Main row — always visible
+                                            HorizontalBox {
+                                                height: 34px;
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                spacing: 6px;
+
+                                                CheckBox {
+                                                    checked: app.enabled;
+                                                    toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
+                                                }
+                                                Text {
+                                                    text: app.icon;
+                                                    font-family: "Symbols Nerd Font Mono";
+                                                    font-size: 13px;
+                                                    color: FadeTheme.accent;
+                                                    vertical-alignment: center;
+                                                    width: 18px;
+                                                }
+                                                Text {
+                                                    text: app.process;
+                                                    color: FadeTheme.text;
+                                                    font-size: 12px;
+                                                    vertical-alignment: center;
+                                                    width: 120px;
+                                                    overflow: elide;
+                                                }
+
+                                                // Status label
+                                                if !app.customized: Text {
+                                                    text: "Inheriting Group Settings";
+                                                    color: FadeTheme.text-dim;
+                                                    font-size: 11px;
+                                                    vertical-alignment: center;
+                                                    horizontal-stretch: 1;
+                                                }
+                                                if app.customized: Text {
+                                                    text: "Custom Rule Applied";
+                                                    color: FadeTheme.warning;
+                                                    font-size: 11px;
+                                                    vertical-alignment: center;
+                                                    horizontal-stretch: 1;
+                                                }
+
+                                                // Customize / Reset button
+                                                if !app.customized: Rectangle {
+                                                    width: 130px;
+                                                    height: 22px;
+                                                    border-radius: 4px;
+                                                    background: cust-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
+                                                    border-width: 1px;
+                                                    border-color: FadeTheme.border;
+                                                    cust-ta := TouchArea {
+                                                        mouse-cursor: pointer;
+                                                        clicked => { root.customize-app(g-idx, a-idx); }
+                                                    }
+                                                    Text {
+                                                        text: "Customize Individual Rule";
+                                                        font-size: 10px;
+                                                        color: cust-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                        horizontal-alignment: center;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                            }
+
+                                            // Expanded custom controls — only when customized
+                                            if app.customized: HorizontalBox {
+                                                height: 28px;
+                                                padding-left: 52px;
+                                                padding-right: 8px;
+                                                spacing: 6px;
+
+                                                Text {
+                                                    text: Math.round(app-slider.value) * 5 + " min";
+                                                    color: FadeTheme.text;
+                                                    font-size: 11px;
+                                                    width: 42px;
+                                                    horizontal-alignment: right;
+                                                    vertical-alignment: center;
+                                                }
+                                                app-slider := Slider {
+                                                    width: 90px;
+                                                    minimum: 1;
+                                                    maximum: 24;
+                                                    value: Math.ceil(app.timeout-mins / 5);
+                                                    changed(val) => {
+                                                        root.update-app-timeout(g-idx, a-idx, Math.round(val) * 5);
+                                                    }
+                                                }
+                                                ComboBox {
+                                                    width: 85px;
+                                                    model: ["minimize", "close"];
+                                                    current-value: app.action;
+                                                    selected(val) => { root.update-app-action(g-idx, a-idx, val); }
+                                                }
+                                                Rectangle {
+                                                    horizontal-stretch: 1;
+                                                }
+                                                Rectangle {
+                                                    width: 110px;
+                                                    height: 22px;
+                                                    border-radius: 4px;
+                                                    background: reset-ta.has-hover ? FadeTheme.warning : FadeTheme.surface;
+                                                    border-width: 1px;
+                                                    border-color: FadeTheme.border;
+                                                    reset-ta := TouchArea {
+                                                        mouse-cursor: pointer;
+                                                        clicked => { root.reset-app-to-group(g-idx, a-idx); }
+                                                    }
+                                                    Text {
+                                                        text: "Reset to Group Settings";
+                                                        font-size: 10px;
+                                                        color: reset-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                        horizontal-alignment: center;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Unassigned Rules section ──
+                        if root.unassigned-rules.length > 0: Rectangle {
+                            border-radius: FadeTheme.radius;
+                            background: FadeTheme.card-bg;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
+
+                            VerticalBox {
+                                padding: 0px;
+                                spacing: 0px;
+
+                                // Header
+                                Rectangle {
+                                    height: 40px;
+                                    border-radius: FadeTheme.radius;
+                                    background: FadeTheme.card-header-bg;
+                                    HorizontalBox {
+                                        padding-left: 12px;
+                                        spacing: 8px;
+                                        Text {
+                                            text: "Special \"Individual Rules (Unassigned)\" Group";
+                                            color: FadeTheme.text;
+                                            font-size: 13px;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Unassigned rule rows
+                                VerticalBox {
+                                    padding: 8px;
+                                    spacing: 2px;
+
+                                    for urule[u-idx] in root.unassigned-rules: Rectangle {
+                                        height: 34px;
+                                        border-radius: 4px;
+                                        background: u-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
+                                        u-ta := TouchArea {}
+
+                                        HorizontalBox {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 6px;
+
+                                            CheckBox {
+                                                checked: urule.enabled;
+                                                toggled => { root.toggle-unassigned(u-idx, self.checked); }
+                                            }
+                                            Text {
+                                                text: urule.icon;
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 13px;
+                                                color: FadeTheme.accent;
+                                                vertical-alignment: center;
+                                                width: 18px;
+                                            }
+                                            Text {
+                                                text: urule.process;
+                                                color: FadeTheme.text;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                                width: 130px;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: Math.round(u-slider.value) * 5 + " min";
+                                                color: FadeTheme.text;
+                                                font-size: 11px;
+                                                width: 42px;
+                                                horizontal-alignment: right;
+                                                vertical-alignment: center;
+                                            }
+                                            u-slider := Slider {
+                                                width: 90px;
+                                                minimum: 1;
+                                                maximum: 24;
+                                                value: Math.ceil(urule.timeout-mins / 5);
+                                                changed(val) => {
+                                                    root.update-unassigned-timeout(u-idx, Math.round(val) * 5);
+                                                }
+                                            }
+                                            ComboBox {
+                                                width: 85px;
+                                                model: ["minimize", "close"];
+                                                current-value: urule.action;
+                                                selected(val) => { root.update-unassigned-action(u-idx, val); }
+                                            }
+                                            // Remove button
+                                            Rectangle {
+                                                width: 22px;
+                                                height: 22px;
+                                                border-radius: 4px;
+                                                background: u-rm-ta.has-hover ? FadeTheme.danger : transparent;
+                                                u-rm-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => { root.remove-unassigned(u-idx); }
+                                                }
+                                                Text {
+                                                    text: "✕";
+                                                    color: u-rm-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                    font-size: 11px;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
