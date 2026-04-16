@@ -304,31 +304,269 @@ fn setup_gui_callbacks(
     config: Arc<RwLock<Config>>,
     snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
 ) {
-    // Helper: refresh rules + active windows after any rule/bucket mutation
-    let refresh_all = move |cfg: &Config,
-                            weak: &slint::Weak<SettingsWindow>,
-                            snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>| {
-        if let Some(w) = weak.upgrade() {
-            // Refresh rules
-            let rules = app_rules_to_models(&cfg.app_rule);
-            w.set_app_rules(std::rc::Rc::new(slint::VecModel::from(rules)).into());
-
-            // Refresh active windows (updates managed status, removes hidden)
-            refresh_active_windows(&w, cfg, snap);
+    // Helper: full refresh after any mutation
+    let refresh_all = {
+        move |cfg: &Config,
+              weak: &slint::Weak<SettingsWindow>,
+              snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>| {
+            if let Some(w) = weak.upgrade() {
+                update_gui_from_config(&w, cfg);
+                refresh_active_windows(&w, cfg, snap);
+            }
         }
     };
 
-    // Add rule
+    // ── Group (bucket) callbacks ──
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_toggle_group(move |idx, enabled| {
+        if let Ok(mut c) = cfg.write() {
+            let idx = idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].enabled = enabled;
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_group_timeout(move |idx, mins| {
+        if let Ok(mut c) = cfg.write() {
+            let idx = idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].timeout_mins = mins as u64;
+                let _ = c.save();
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_group_action(move |idx, action| {
+        if let Ok(mut c) = cfg.write() {
+            let idx = idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].action = Action::from_str(&action);
+                let _ = c.save();
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_add_app_to_group(move |g_idx, process| {
+        let process_str = process.to_string();
+        if process_str.is_empty() { return; }
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            if g < c.bucket.len() {
+                let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&process_str));
+                if !already {
+                    c.bucket[g].processes.push(process_str);
+                    let _ = c.save();
+                    refresh_all(&c, &weak, &snap);
+                }
+            }
+        }
+    });
+
+    // ── App-in-group callbacks ──
+
+    // Customize: create an app_rule for a bucket process (copies bucket settings as starting point)
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_customize_app(move |g_idx, a_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g < c.bucket.len() && a < c.bucket[g].processes.len() {
+                let process = c.bucket[g].processes[a].clone();
+                let timeout_mins = c.bucket[g].timeout_mins;
+                let action = c.bucket[g].action.clone();
+                // Only create if no app_rule exists yet
+                let exists = c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process));
+                if !exists {
+                    c.app_rule.push(config::AppRule {
+                        process,
+                        timeout_mins,
+                        action,
+                        enabled: true,
+                    });
+                    let _ = c.save();
+                    refresh_all(&c, &weak, &snap);
+                }
+            }
+        }
+    });
+
+    // Reset to group: delete the app_rule for this bucket process
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_reset_app_to_group(move |g_idx, a_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g < c.bucket.len() && a < c.bucket[g].processes.len() {
+                let process_lower = c.bucket[g].processes[a].to_lowercase();
+                c.app_rule.retain(|r| r.process.to_lowercase() != process_lower);
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_app_timeout(move |g_idx, a_idx, mins| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g < c.bucket.len() && a < c.bucket[g].processes.len() {
+                let process_lower = c.bucket[g].processes[a].to_lowercase();
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
+                    rule.timeout_mins = mins as u64;
+                    let _ = c.save();
+                }
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_app_action(move |g_idx, a_idx, action| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g < c.bucket.len() && a < c.bucket[g].processes.len() {
+                let process_lower = c.bucket[g].processes[a].to_lowercase();
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
+                    rule.action = Action::from_str(&action);
+                    let _ = c.save();
+                }
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_toggle_app(move |g_idx, a_idx, enabled| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g < c.bucket.len() && a < c.bucket[g].processes.len() {
+                let process = c.bucket[g].processes[a].clone();
+                let process_lower = process.to_lowercase();
+                let bucket_timeout = c.bucket[g].timeout_mins;
+                let bucket_action = c.bucket[g].action.clone();
+                // If toggling an inherited app, create a custom rule first
+                let exists = c.app_rule.iter().any(|r| r.process.to_lowercase() == process_lower);
+                if !exists {
+                    c.app_rule.push(config::AppRule {
+                        process,
+                        timeout_mins: bucket_timeout,
+                        action: bucket_action,
+                        enabled,
+                    });
+                } else if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
+                    rule.enabled = enabled;
+                }
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    // ── Unassigned rule callbacks ──
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_remove_unassigned(move |idx| {
+        if let Ok(mut c) = cfg.write() {
+            // Find the idx-th unassigned rule
+            let unassigned_processes: Vec<String> = c.app_rule.iter()
+                .filter(|r| !process_in_any_bucket(&c, &r.process))
+                .map(|r| r.process.to_lowercase())
+                .collect();
+            if let Some(proc) = unassigned_processes.get(idx as usize) {
+                let proc = proc.clone();
+                c.app_rule.retain(|r| r.process.to_lowercase() != proc);
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_toggle_unassigned(move |idx, enabled| {
+        if let Ok(mut c) = cfg.write() {
+            let unassigned_processes: Vec<String> = c.app_rule.iter()
+                .filter(|r| !process_in_any_bucket(&c, &r.process))
+                .map(|r| r.process.to_lowercase())
+                .collect();
+            if let Some(proc) = unassigned_processes.get(idx as usize) {
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
+                    rule.enabled = enabled;
+                    let _ = c.save();
+                    refresh_all(&c, &weak, &snap);
+                }
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_unassigned_timeout(move |idx, mins| {
+        if let Ok(mut c) = cfg.write() {
+            let unassigned_processes: Vec<String> = c.app_rule.iter()
+                .filter(|r| !process_in_any_bucket(&c, &r.process))
+                .map(|r| r.process.to_lowercase())
+                .collect();
+            if let Some(proc) = unassigned_processes.get(idx as usize) {
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
+                    rule.timeout_mins = mins as u64;
+                    let _ = c.save();
+                }
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_update_unassigned_action(move |idx, action| {
+        if let Ok(mut c) = cfg.write() {
+            let unassigned_processes: Vec<String> = c.app_rule.iter()
+                .filter(|r| !process_in_any_bucket(&c, &r.process))
+                .map(|r| r.process.to_lowercase())
+                .collect();
+            if let Some(proc) = unassigned_processes.get(idx as usize) {
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
+                    rule.action = Action::from_str(&action);
+                    let _ = c.save();
+                }
+            }
+        }
+    });
+
+    // ── Drawer callbacks ──
+
+    // add-rule: add as unassigned app_rule (from active process drawer)
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
     window.on_add_rule(move |process| {
         let process_str = process.to_string();
-        if process_str.is_empty() {
-            return;
-        }
+        if process_str.is_empty() { return; }
         if let Ok(mut c) = cfg.write() {
             if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str)) {
+                return;
+            }
+            // Also skip if already in a bucket
+            if process_in_any_bucket(&c, &process_str) {
                 return;
             }
             c.app_rule.push(config::AppRule {
@@ -342,64 +580,54 @@ fn setup_gui_callbacks(
         }
     });
 
-    // Remove rule
+    // add-process-name: same as add-rule (manual text entry)
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
-    window.on_remove_rule(move |idx| {
+    window.on_add_process_name(move |process| {
+        let process_str = process.to_string();
+        if process_str.is_empty() { return; }
         if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.app_rule.len() {
-                c.app_rule.remove(idx);
-                let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str)) {
+                return;
             }
+            if process_in_any_bucket(&c, &process_str) {
+                return;
+            }
+            c.app_rule.push(config::AppRule {
+                process: process_str,
+                timeout_mins: 15,
+                action: Action::Minimize,
+                enabled: true,
+            });
+            let _ = c.save();
+            refresh_all(&c, &weak, &snap);
         }
     });
 
-    // Toggle rule enabled
+    // ── General settings ──
+
     let cfg = config.clone();
-    let weak = window.as_weak();
-    let snap = snapshot_buffer.clone();
-    window.on_toggle_rule(move |idx, enabled| {
+    window.on_set_polling_interval(move |secs| {
         if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.app_rule.len() {
-                c.app_rule[idx].enabled = enabled;
-                let _ = c.save();
-                refresh_all(&c, &weak, &snap);
-            }
+            c.general.polling_interval_secs = secs as u64;
+            let _ = c.save();
         }
     });
 
-    // Update rule timeout
     let cfg = config.clone();
-    window.on_update_rule_timeout(move |idx, mins| {
+    window.on_set_auto_start(move |enabled| {
+        if let Err(e) = autostart::set_auto_start(enabled) {
+            log::error!("Auto-start toggle failed: {}", e);
+            return;
+        }
         if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.app_rule.len() {
-                c.app_rule[idx].timeout_mins = mins as u64;
-                let _ = c.save();
-            }
+            c.general.auto_start = enabled;
+            let _ = c.save();
         }
     });
 
-    // Update rule action
-    let cfg = config.clone();
-    let weak = window.as_weak();
-    let snap = snapshot_buffer.clone();
-    window.on_update_rule_action(move |idx, action| {
-        if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.app_rule.len() {
-                c.app_rule[idx].action = Action::from_str(&action);
-                let _ = c.save();
-                refresh_all(&c, &weak, &snap);
-            }
-        }
-    });
-
-    // Hide process
+    // hide-process (kept for potential future use)
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
@@ -413,67 +641,6 @@ fn setup_gui_callbacks(
                     refresh_active_windows(&w, &c, &snap);
                 }
             }
-        }
-    });
-
-    // Toggle bucket
-    let cfg = config.clone();
-    let weak = window.as_weak();
-    let snap = snapshot_buffer.clone();
-    window.on_toggle_bucket(move |idx, enabled| {
-        if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.bucket.len() {
-                c.bucket[idx].enabled = enabled;
-                let _ = c.save();
-                refresh_all(&c, &weak, &snap);
-            }
-        }
-    });
-
-    // Update bucket action
-    let cfg = config.clone();
-    window.on_update_bucket_action(move |idx, action| {
-        if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.bucket.len() {
-                c.bucket[idx].action = Action::from_str(&action);
-                let _ = c.save();
-            }
-        }
-    });
-
-    // Update bucket timeout
-    let cfg = config.clone();
-    window.on_update_bucket_timeout(move |idx, mins| {
-        if let Ok(mut c) = cfg.write() {
-            let idx = idx as usize;
-            if idx < c.bucket.len() {
-                c.bucket[idx].timeout_mins = mins as u64;
-                let _ = c.save();
-            }
-        }
-    });
-
-    // Set polling interval
-    let cfg = config.clone();
-    window.on_set_polling_interval(move |secs| {
-        if let Ok(mut c) = cfg.write() {
-            c.general.polling_interval_secs = secs as u64;
-            let _ = c.save();
-        }
-    });
-
-    // Set auto-start
-    let cfg = config.clone();
-    window.on_set_auto_start(move |enabled| {
-        if let Err(e) = autostart::set_auto_start(enabled) {
-            log::error!("Auto-start toggle failed: {}", e);
-            return;
-        }
-        if let Ok(mut c) = cfg.write() {
-            c.general.auto_start = enabled;
-            let _ = c.save();
         }
     });
 }
