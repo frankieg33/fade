@@ -826,15 +826,9 @@ export component SettingsWindow inherits Window {
                     HorizontalBox {
                         spacing: 4px;
                         height: 28px;
-                        Rectangle {
-                            border-radius: 4px;
-                            background: FadeTheme.input-bg;
-                            border-width: 1px;
-                            border-color: FadeTheme.border;
+                        manual-input := LineEdit {
                             horizontal-stretch: 1;
-                            manual-input := LineEdit {
-                                placeholder-text: "Add process name";
-                            }
+                            placeholder-text: "Add process name";
                         }
                         Rectangle {
                             width: 28px;
