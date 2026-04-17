@@ -20,6 +20,7 @@ export struct GroupModel {
     timeout-mins: int,      // bucket.timeout_mins
     action: string,         // bucket.action
     apps: [GroupAppModel],  // processes in this bucket
+    expanded: bool,
 }
 
 // An unassigned app rule (not in any bucket)
@@ -72,6 +73,7 @@ export component SettingsWindow inherits Window {
     callback update-group-timeout(int /* group idx */, int /* mins */);
     callback update-group-action(int /* group idx */, string /* action */);
     callback add-app-to-group(int /* group idx */, string /* process */);
+    callback toggle-group-expanded(int /* group idx */);
 
     // App-in-group callbacks
     callback customize-app(int /* group idx */, int /* app idx */);
@@ -269,8 +271,6 @@ export component SettingsWindow inherits Window {
                             border-width: 1px;
                             border-color: FadeTheme.border;
 
-                            property <bool> expanded: true;
-
                             VerticalBox {
                                 padding: 0px;
                                 spacing: 0px;
@@ -280,6 +280,11 @@ export component SettingsWindow inherits Window {
                                     height: 44px;
                                     border-radius: FadeTheme.radius;
                                     background: FadeTheme.card-header-bg;
+
+                                    header-ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.toggle-group-expanded(g-idx); }
+                                    }
 
                                     HorizontalBox {
                                         padding-left: 12px;
@@ -330,30 +335,21 @@ export component SettingsWindow inherits Window {
                                             current-value: group.action;
                                             selected(val) => { root.update-group-action(g-idx, val); }
                                         }
-                                        // Expand/collapse toggle
-                                        Rectangle {
+                                        // Chevron
+                                        Text {
+                                            text: group.expanded ? "\u{F0140}" : "\u{F0142}";
+                                            font-family: "Symbols Nerd Font Mono";
+                                            font-size: 14px;
+                                            color: FadeTheme.text-dim;
+                                            vertical-alignment: center;
                                             width: 24px;
-                                            height: 24px;
-                                            border-radius: 4px;
-                                            background: exp-ta.has-hover ? FadeTheme.surface-hover : transparent;
-                                            exp-ta := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => { expanded = !expanded; }
-                                            }
-                                            Text {
-                                                text: "\u{F03EB}";
-                                                font-family: "Symbols Nerd Font Mono";
-                                                font-size: 14px;
-                                                color: exp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
+                                            horizontal-alignment: center;
                                         }
                                     }
                                 }
 
                                 // "+ Add app to this group" link
-                                if expanded: Rectangle {
+                                if group.expanded: Rectangle {
                                     height: 28px;
                                     HorizontalBox {
                                         padding-left: 16px;
@@ -374,7 +370,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 // App rows within this group
-                                if expanded: VerticalBox {
+                                if group.expanded: VerticalBox {
                                     padding-left: 8px;
                                     padding-right: 8px;
                                     padding-bottom: 8px;
