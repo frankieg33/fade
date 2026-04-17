@@ -222,6 +222,7 @@ fn build_groups(config: &Config) -> Vec<GroupModel> {
             timeout_mins: bucket.timeout_mins as i32,
             action: bucket.action.as_str().into(),
             apps: std::rc::Rc::new(slint::VecModel::from(apps)).into(),
+            expanded: bucket.expanded,
         }
     }).collect()
 }
@@ -350,6 +351,20 @@ fn setup_gui_callbacks(
             if idx < c.bucket.len() {
                 c.bucket[idx].action = Action::from_str(&action);
                 let _ = c.save();
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_toggle_group_expanded(move |idx| {
+        if let Ok(mut c) = cfg.write() {
+            let idx = idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].expanded = !c.bucket[idx].expanded;
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
             }
         }
     });
