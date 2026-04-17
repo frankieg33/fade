@@ -42,9 +42,9 @@ export struct ActiveProcessModel {
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
-    preferred-width: 800px;
+    preferred-width: 900px;
     preferred-height: 560px;
-    min-width: 720px;
+    min-width: 780px;
     min-height: 400px;
     background: FadeTheme.bg;
 
@@ -232,18 +232,18 @@ export component SettingsWindow inherits Window {
                         border-width: 1px;
                         border-color: FadeTheme.border;
                         HorizontalBox {
-                            padding: 0px;
-                            spacing: 0px;
-                            Rectangle {
-                                width: 32px;
-                                Text {
-                                    text: "\u{F0349}";
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 13px;
-                                    color: FadeTheme.text-dim;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
+                            padding-top: 0px;
+                            padding-bottom: 0px;
+                            padding-left: 8px;
+                            padding-right: 0px;
+                            spacing: 4px;
+                            Text {
+                                text: "\u{F0349}";
+                                font-family: "Symbols Nerd Font Mono";
+                                font-size: 13px;
+                                color: FadeTheme.text-dim;
+                                vertical-alignment: center;
+                                width: 20px;
                             }
                             search-input := LineEdit {
                                 horizontal-stretch: 1;
@@ -419,17 +419,17 @@ export component SettingsWindow inherits Window {
 
                                             // Inline custom controls — only when customized
                                             if app.customized: HorizontalBox {
-                                                spacing: 6px;
+                                                spacing: 8px;
                                                 Text {
                                                     text: Math.round(app-slider.value) * 5 + " min";
                                                     color: FadeTheme.text;
-                                                    font-size: 11px;
-                                                    width: 42px;
+                                                    font-size: 12px;
+                                                    width: 48px;
                                                     horizontal-alignment: right;
                                                     vertical-alignment: center;
                                                 }
                                                 app-slider := Slider {
-                                                    width: 90px;
+                                                    width: 120px;
                                                     minimum: 1;
                                                     maximum: 24;
                                                     value: Math.ceil(app.timeout-mins / 5);
@@ -438,7 +438,7 @@ export component SettingsWindow inherits Window {
                                                     }
                                                 }
                                                 ComboBox {
-                                                    width: 85px;
+                                                    width: 100px;
                                                     model: ["minimize", "close"];
                                                     current-value: app.action;
                                                     selected(val) => { root.update-app-action(g-idx, a-idx, val); }
@@ -716,10 +716,10 @@ export component SettingsWindow inherits Window {
 
             // ── Active Processes Drawer (floating overlay) ──
             if root.drawer-open: Rectangle {
-                x: parent.width - 240px;
-                y: parent.height - 280px;
-                width: 230px;
-                height: 270px;
+                x: parent.width - 310px;
+                y: parent.height - 310px;
+                width: 300px;
+                height: 300px;
                 background: FadeTheme.drawer-bg;
                 border-radius: FadeTheme.radius;
                 border-width: 1px;
@@ -782,7 +782,7 @@ export component SettingsWindow inherits Window {
                                         font-size: 12px;
                                         color: FadeTheme.accent;
                                         vertical-alignment: center;
-                                        width: 16px;
+                                        width: 22px;
                                     }
                                     Text {
                                         text: proc.process;
