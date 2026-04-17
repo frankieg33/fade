@@ -44,7 +44,7 @@ export component SettingsWindow inherits Window {
     icon: @image-url("Fade Icon.png");
     preferred-width: 800px;
     preferred-height: 560px;
-    min-width: 600px;
+    min-width: 720px;
     min-height: 400px;
     background: FadeTheme.bg;
 
@@ -380,88 +380,46 @@ export component SettingsWindow inherits Window {
                                     spacing: 2px;
 
                                     for app[a-idx] in group.apps: Rectangle {
-                                        height: app.customized ? 64px : 34px;
+                                        height: 34px;
                                         border-radius: 4px;
                                         background: app-row-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
                                         app-row-ta := TouchArea {}
 
-                                        VerticalBox {
-                                            padding: 0px;
-                                            spacing: 0px;
+                                        HorizontalBox {
+                                            height: 34px;
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            spacing: 6px;
 
-                                            // Main row — always visible
-                                            HorizontalBox {
-                                                height: 34px;
-                                                padding-left: 8px;
-                                                padding-right: 8px;
-                                                spacing: 6px;
-
-                                                CheckBox {
-                                                    checked: app.enabled;
-                                                    toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
-                                                }
-                                                Text {
-                                                    text: app.icon;
-                                                    font-family: "Symbols Nerd Font Mono";
-                                                    font-size: 13px;
-                                                    color: FadeTheme.accent;
-                                                    vertical-alignment: center;
-                                                    width: 18px;
-                                                }
-                                                Text {
-                                                    text: app.process;
-                                                    color: FadeTheme.text;
-                                                    font-size: 12px;
-                                                    vertical-alignment: center;
-                                                    width: 120px;
-                                                    overflow: elide;
-                                                }
-
-                                                // Status label
-                                                if !app.customized: Text {
-                                                    text: "Inheriting Group Settings";
-                                                    color: FadeTheme.text-dim;
-                                                    font-size: 11px;
-                                                    vertical-alignment: center;
-                                                    horizontal-stretch: 1;
-                                                }
-                                                if app.customized: Text {
-                                                    text: "Custom Rule Applied";
-                                                    color: FadeTheme.warning;
-                                                    font-size: 11px;
-                                                    vertical-alignment: center;
-                                                    horizontal-stretch: 1;
-                                                }
-
-                                                // Customize / Reset button
-                                                if !app.customized: Rectangle {
-                                                    width: 130px;
-                                                    height: 22px;
-                                                    border-radius: 4px;
-                                                    background: cust-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
-                                                    border-width: 1px;
-                                                    border-color: FadeTheme.border;
-                                                    cust-ta := TouchArea {
-                                                        mouse-cursor: pointer;
-                                                        clicked => { root.customize-app(g-idx, a-idx); }
-                                                    }
-                                                    Text {
-                                                        text: "Customize Individual Rule";
-                                                        font-size: 10px;
-                                                        color: cust-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                                        horizontal-alignment: center;
-                                                        vertical-alignment: center;
-                                                    }
-                                                }
+                                            CheckBox {
+                                                checked: app.enabled;
+                                                toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
+                                            }
+                                            Text {
+                                                text: app.icon;
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 13px;
+                                                color: FadeTheme.accent;
+                                                vertical-alignment: center;
+                                                width: 18px;
+                                            }
+                                            Text {
+                                                text: app.process;
+                                                color: FadeTheme.text;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                                width: 120px;
+                                                overflow: elide;
                                             }
 
-                                            // Expanded custom controls — only when customized
-                                            if app.customized: HorizontalBox {
-                                                height: 28px;
-                                                padding-left: 52px;
-                                                padding-right: 8px;
-                                                spacing: 6px;
+                                            // Stretchy spacer pushes controls to the right
+                                            Rectangle {
+                                                horizontal-stretch: 1;
+                                            }
 
+                                            // Inline custom controls — only when customized
+                                            if app.customized: HorizontalBox {
+                                                spacing: 6px;
                                                 Text {
                                                     text: Math.round(app-slider.value) * 5 + " min";
                                                     color: FadeTheme.text;
@@ -485,27 +443,45 @@ export component SettingsWindow inherits Window {
                                                     current-value: app.action;
                                                     selected(val) => { root.update-app-action(g-idx, a-idx, val); }
                                                 }
-                                                Rectangle {
-                                                    horizontal-stretch: 1;
+                                            }
+
+                                            // Customize / Reset button — always visible
+                                            if !app.customized: Rectangle {
+                                                width: 90px;
+                                                height: 22px;
+                                                border-radius: 4px;
+                                                background: cust-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
+                                                border-width: 1px;
+                                                border-color: FadeTheme.border;
+                                                cust-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => { root.customize-app(g-idx, a-idx); }
                                                 }
-                                                Rectangle {
-                                                    width: 110px;
-                                                    height: 22px;
-                                                    border-radius: 4px;
-                                                    background: reset-ta.has-hover ? FadeTheme.warning : FadeTheme.surface;
-                                                    border-width: 1px;
-                                                    border-color: FadeTheme.border;
-                                                    reset-ta := TouchArea {
-                                                        mouse-cursor: pointer;
-                                                        clicked => { root.reset-app-to-group(g-idx, a-idx); }
-                                                    }
-                                                    Text {
-                                                        text: "Reset to Group Settings";
-                                                        font-size: 10px;
-                                                        color: reset-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
-                                                        horizontal-alignment: center;
-                                                        vertical-alignment: center;
-                                                    }
+                                                Text {
+                                                    text: "Customize";
+                                                    font-size: 10px;
+                                                    color: cust-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            if app.customized: Rectangle {
+                                                width: 90px;
+                                                height: 22px;
+                                                border-radius: 4px;
+                                                background: reset-ta.has-hover ? FadeTheme.warning : FadeTheme.surface;
+                                                border-width: 1px;
+                                                border-color: FadeTheme.border;
+                                                reset-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => { root.reset-app-to-group(g-idx, a-idx); }
+                                                }
+                                                Text {
+                                                    text: "Reset";
+                                                    font-size: 10px;
+                                                    color: reset-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
                                                 }
                                             }
                                         }
