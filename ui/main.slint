@@ -225,22 +225,25 @@ export component SettingsWindow inherits Window {
                     }
                     // Search box
                     Rectangle {
-                        width: 180px;
+                        width: 220px;
                         height: 30px;
                         background: FadeTheme.input-bg;
                         border-radius: FadeTheme.radius;
                         border-width: 1px;
                         border-color: FadeTheme.border;
                         HorizontalBox {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 6px;
-                            Text {
-                                text: "\u{F0349}";
-                                font-family: "Symbols Nerd Font Mono";
-                                font-size: 13px;
-                                color: FadeTheme.text-dim;
-                                vertical-alignment: center;
+                            padding: 0px;
+                            spacing: 0px;
+                            Rectangle {
+                                width: 32px;
+                                Text {
+                                    text: "\u{F0349}";
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 13px;
+                                    color: FadeTheme.text-dim;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
                             }
                             search-input := LineEdit {
                                 horizontal-stretch: 1;
