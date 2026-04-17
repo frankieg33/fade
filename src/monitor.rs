@@ -538,6 +538,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Minimize,
                 enabled: true,
+                expanded: true,
             }],
         );
         let (mut monitor, mock, _, _, timestamps) = setup(config);

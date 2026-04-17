@@ -13,6 +13,7 @@ mod tests {
             timeout_mins: 15,
             action: Action::Minimize,
             enabled: true,
+            expanded: true,
         };
         assert_eq!(bucket.processes.len(), 2);
     }
