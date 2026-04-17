@@ -73,6 +73,8 @@ pub struct Bucket {
     pub action: Action,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub expanded: bool,
 }
 
 fn default_timeout() -> u64 {
@@ -234,6 +236,7 @@ fn default_buckets() -> Vec<Bucket> {
             timeout_mins: 15,
             action: Action::Minimize,
             enabled: false, // opt-in
+            expanded: true,
         },
         Bucket {
             name: "Communication".into(),
@@ -248,6 +251,7 @@ fn default_buckets() -> Vec<Bucket> {
             timeout_mins: 30,
             action: Action::Minimize,
             enabled: false,
+            expanded: true,
         },
         Bucket {
             name: "Media".into(),
@@ -260,6 +264,7 @@ fn default_buckets() -> Vec<Bucket> {
             timeout_mins: 20,
             action: Action::Minimize,
             enabled: false,
+            expanded: true,
         },
         Bucket {
             name: "Development".into(),
@@ -272,6 +277,7 @@ fn default_buckets() -> Vec<Bucket> {
             timeout_mins: 60,
             action: Action::Minimize,
             enabled: false,
+            expanded: true,
         },
         Bucket {
             name: "Gaming".into(),
@@ -283,6 +289,7 @@ fn default_buckets() -> Vec<Bucket> {
             timeout_mins: 30,
             action: Action::Minimize,
             enabled: false,
+            expanded: true,
         },
     ]
 }
@@ -308,6 +315,7 @@ mod tests {
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: true,
+                expanded: true,
             }],
             app_rule: vec![AppRule {
                 process: "chrome.exe".into(),
@@ -332,6 +340,7 @@ mod tests {
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: true,
+                expanded: true,
             }],
             app_rule: vec![],
         };
@@ -373,6 +382,7 @@ mod tests {
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: false,
+                expanded: true,
             }],
             app_rule: vec![],
         };
@@ -466,5 +476,30 @@ enabled = true
         assert_eq!(Action::from_str(Action::Minimize.as_str()), Action::Minimize);
         assert_eq!(Action::from_str(Action::Close.as_str()), Action::Close);
         assert_eq!(Action::from_str("garbage"), Action::Minimize); // default fallback
+    }
+
+    #[test]
+    fn test_expanded_defaults_to_true_from_old_toml() {
+        let toml_str = r#"
+[[bucket]]
+name = "Test"
+processes = ["test.exe"]
+timeout_mins = 10
+action = "minimize"
+enabled = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.bucket.len(), 1);
+        assert!(config.bucket[0].expanded, "expanded should default to true for old configs");
+    }
+
+    #[test]
+    fn test_expanded_roundtrip() {
+        let mut config = Config::default_config();
+        config.bucket[0].expanded = false;
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert!(!deserialized.bucket[0].expanded, "expanded=false should survive roundtrip");
+        assert!(deserialized.bucket[1].expanded, "other buckets should stay expanded");
     }
 }
