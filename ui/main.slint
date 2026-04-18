@@ -398,28 +398,24 @@ export component SettingsWindow inherits Window {
                                             Text {
                                                 text: app.icon;
                                                 font-family: "Symbols Nerd Font Mono";
-                                                font-size: 13px;
+                                                font-size: 15px;
                                                 color: FadeTheme.accent;
                                                 vertical-alignment: center;
-                                                width: 18px;
+                                                width: 22px;
                                             }
                                             Text {
                                                 text: app.process;
                                                 color: FadeTheme.text;
                                                 font-size: 12px;
                                                 vertical-alignment: center;
-                                                width: 120px;
-                                                overflow: elide;
-                                            }
-
-                                            // Stretchy spacer pushes controls to the right
-                                            Rectangle {
                                                 horizontal-stretch: 1;
+                                                overflow: elide;
                                             }
 
                                             // Inline custom controls — only when customized
                                             if app.customized: HorizontalBox {
-                                                spacing: 8px;
+                                                padding: 0px;
+                                                spacing: 6px;
                                                 Text {
                                                     text: Math.round(app-slider.value) * 5 + " min";
                                                     color: FadeTheme.text;
@@ -430,6 +426,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                                 app-slider := Slider {
                                                     width: 120px;
+                                                    height: 20px;
                                                     minimum: 1;
                                                     maximum: 24;
                                                     value: Math.ceil(app.timeout-mins / 5);
@@ -445,9 +442,9 @@ export component SettingsWindow inherits Window {
                                                 }
                                             }
 
-                                            // Customize / Reset button — always visible
+                                            // Customize / Reset button
                                             if !app.customized: Rectangle {
-                                                width: 90px;
+                                                width: 60px;
                                                 height: 22px;
                                                 border-radius: 4px;
                                                 background: cust-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
@@ -458,7 +455,7 @@ export component SettingsWindow inherits Window {
                                                     clicked => { root.customize-app(g-idx, a-idx); }
                                                 }
                                                 Text {
-                                                    text: "Customize";
+                                                    text: "Edit";
                                                     font-size: 10px;
                                                     color: cust-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
                                                     horizontal-alignment: center;
@@ -466,7 +463,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                             }
                                             if app.customized: Rectangle {
-                                                width: 90px;
+                                                width: 60px;
                                                 height: 22px;
                                                 border-radius: 4px;
                                                 background: reset-ta.has-hover ? FadeTheme.warning : FadeTheme.surface;
