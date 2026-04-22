@@ -197,16 +197,17 @@ fn find_app_rule<'a>(config: &'a Config, process: &str) -> Option<&'a config::Ap
 
 /// Build GroupModel list from config buckets.
 fn build_groups(config: &Config) -> Vec<GroupModel> {
-    config.bucket.iter().map(|bucket| {
+    config.bucket.iter().enumerate().map(|(g_idx, bucket)| {
         let apps: Vec<GroupAppModel> = bucket.processes.iter().map(|proc| {
-            let customized = find_app_rule(config, proc).is_some();
-            let (enabled, timeout, action) = if let Some(rule) = find_app_rule(config, proc) {
-                (rule.enabled, rule.timeout_mins as i32, rule.action.as_str().into())
+            let rule = find_app_rule(config, proc);
+            let customized = rule.map(|r| config::app_is_customized(bucket, r)).unwrap_or(false);
+            let (enabled, timeout, action) = if let Some(r) = rule {
+                (r.enabled, r.timeout_mins as i32, r.action.as_str().into())
             } else {
                 (bucket.enabled, bucket.timeout_mins as i32, bucket.action.as_str().into())
             };
             GroupAppModel {
-                icon: icons::process_icon(proc).into(),
+                icon: config.icon_for_app(proc).into(),
                 process: proc.clone().into(),
                 customized,
                 enabled,
@@ -216,7 +217,7 @@ fn build_groups(config: &Config) -> Vec<GroupModel> {
         }).collect();
 
         GroupModel {
-            icon: icons::bucket_icon(&bucket.name).into(),
+            icon: config.icon_for_bucket(g_idx).into(),
             name: bucket.name.clone().into(),
             enabled: bucket.enabled,
             timeout_mins: bucket.timeout_mins as i32,
@@ -232,7 +233,7 @@ fn build_unassigned_rules(config: &Config) -> Vec<UnassignedRuleModel> {
     config.app_rule.iter()
         .filter(|r| !process_in_any_bucket(config, &r.process))
         .map(|r| UnassignedRuleModel {
-            icon: icons::process_icon(&r.process).into(),
+            icon: config.icon_for_app(&r.process).into(),
             process: r.process.clone().into(),
             timeout_mins: r.timeout_mins as i32,
             action: r.action.as_str().into(),
@@ -409,7 +410,7 @@ fn setup_gui_callbacks(
                         process,
                         timeout_mins,
                         action,
-                        enabled: true,
+                        enabled: true, icon: None,
                     });
                     let _ = c.save();
                     refresh_all(&c, &weak, &snap);
@@ -485,6 +486,7 @@ fn setup_gui_callbacks(
                         timeout_mins: bucket_timeout,
                         action: bucket_action,
                         enabled,
+                        icon: None,
                     });
                 } else if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
                     rule.enabled = enabled;
@@ -588,7 +590,7 @@ fn setup_gui_callbacks(
                 process: process_str,
                 timeout_mins: 15,
                 action: Action::Minimize,
-                enabled: true,
+                enabled: true, icon: None,
             });
             let _ = c.save();
             refresh_all(&c, &weak, &snap);
@@ -613,7 +615,7 @@ fn setup_gui_callbacks(
                 process: process_str,
                 timeout_mins: 15,
                 action: Action::Minimize,
-                enabled: true,
+                enabled: true, icon: None,
             });
             let _ = c.save();
             refresh_all(&c, &weak, &snap);

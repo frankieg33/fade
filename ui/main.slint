@@ -42,9 +42,9 @@ export struct ActiveProcessModel {
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
-    preferred-width: 900px;
-    preferred-height: 560px;
-    min-width: 780px;
+    preferred-width: 1020px;
+    preferred-height: 620px;
+    min-width: 880px;
     min-height: 400px;
     background: FadeTheme.bg;
 
@@ -380,16 +380,16 @@ export component SettingsWindow inherits Window {
                                     spacing: 2px;
 
                                     for app[a-idx] in group.apps: Rectangle {
-                                        height: 34px;
+                                        height: 42px;
                                         border-radius: 4px;
                                         background: app-row-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
                                         app-row-ta := TouchArea {}
 
                                         HorizontalBox {
-                                            height: 34px;
+                                            height: 42px;
                                             padding-left: 8px;
                                             padding-right: 8px;
-                                            spacing: 6px;
+                                            spacing: 8px;
 
                                             CheckBox {
                                                 checked: app.enabled;
@@ -398,35 +398,36 @@ export component SettingsWindow inherits Window {
                                             Text {
                                                 text: app.icon;
                                                 font-family: "Symbols Nerd Font Mono";
-                                                font-size: 15px;
+                                                font-size: 16px;
                                                 color: FadeTheme.accent;
                                                 vertical-alignment: center;
-                                                width: 22px;
+                                                width: 24px;
                                             }
                                             Text {
                                                 text: app.process;
                                                 color: FadeTheme.text;
-                                                font-size: 12px;
+                                                font-size: 13px;
                                                 vertical-alignment: center;
-                                                horizontal-stretch: 1;
+                                                min-width: 140px;
                                                 overflow: elide;
                                             }
+                                            Rectangle { horizontal-stretch: 1; }
 
                                             // Inline custom controls — only when customized
                                             if app.customized: HorizontalBox {
                                                 padding: 0px;
-                                                spacing: 6px;
+                                                spacing: 8px;
                                                 Text {
                                                     text: Math.round(app-slider.value) * 5 + " min";
                                                     color: FadeTheme.text;
-                                                    font-size: 12px;
-                                                    width: 48px;
+                                                    font-size: 13px;
+                                                    width: 56px;
                                                     horizontal-alignment: right;
                                                     vertical-alignment: center;
                                                 }
                                                 app-slider := Slider {
-                                                    width: 120px;
-                                                    height: 20px;
+                                                    width: 140px;
+                                                    height: 24px;
                                                     minimum: 1;
                                                     maximum: 24;
                                                     value: Math.ceil(app.timeout-mins / 5);
@@ -435,7 +436,8 @@ export component SettingsWindow inherits Window {
                                                     }
                                                 }
                                                 ComboBox {
-                                                    width: 100px;
+                                                    width: 110px;
+                                                    height: 26px;
                                                     model: ["minimize", "close"];
                                                     current-value: app.action;
                                                     selected(val) => { root.update-app-action(g-idx, a-idx, val); }
@@ -444,8 +446,8 @@ export component SettingsWindow inherits Window {
 
                                             // Customize / Reset button
                                             if !app.customized: Rectangle {
-                                                width: 60px;
-                                                height: 22px;
+                                                width: 64px;
+                                                height: 26px;
                                                 border-radius: 4px;
                                                 background: cust-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
                                                 border-width: 1px;
@@ -456,15 +458,15 @@ export component SettingsWindow inherits Window {
                                                 }
                                                 Text {
                                                     text: "Edit";
-                                                    font-size: 10px;
+                                                    font-size: 12px;
                                                     color: cust-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
                                                     horizontal-alignment: center;
                                                     vertical-alignment: center;
                                                 }
                                             }
                                             if app.customized: Rectangle {
-                                                width: 60px;
-                                                height: 22px;
+                                                width: 64px;
+                                                height: 26px;
                                                 border-radius: 4px;
                                                 background: reset-ta.has-hover ? FadeTheme.warning : FadeTheme.surface;
                                                 border-width: 1px;
@@ -475,7 +477,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                                 Text {
                                                     text: "Reset";
-                                                    font-size: 10px;
+                                                    font-size: 12px;
                                                     color: reset-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
                                                     horizontal-alignment: center;
                                                     vertical-alignment: center;
@@ -713,10 +715,10 @@ export component SettingsWindow inherits Window {
 
             // ── Active Processes Drawer (floating overlay) ──
             if root.drawer-open: Rectangle {
-                x: parent.width - 310px;
-                y: parent.height - 310px;
-                width: 300px;
-                height: 300px;
+                x: parent.width - 380px;
+                y: parent.height - 400px;
+                width: 370px;
+                height: 390px;
                 background: FadeTheme.drawer-bg;
                 border-radius: FadeTheme.radius;
                 border-width: 1px;
@@ -740,18 +742,20 @@ export component SettingsWindow inherits Window {
                             vertical-alignment: center;
                         }
                         Rectangle {
-                            width: 20px;
-                            height: 20px;
+                            width: 24px;
+                            height: 24px;
                             border-radius: 4px;
-                            background: close-drawer-ta.has-hover ? FadeTheme.danger : transparent;
+                            background: close-drawer-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
                             close-drawer-ta := TouchArea {
                                 mouse-cursor: pointer;
                                 clicked => { root.drawer-open = false; }
                             }
                             Text {
                                 text: "✕";
-                                font-size: 11px;
-                                color: close-drawer-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                font-size: 13px;
+                                color: close-drawer-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
@@ -764,7 +768,7 @@ export component SettingsWindow inherits Window {
                         VerticalBox {
                             spacing: 2px;
                             for proc[idx] in root.active-processes: Rectangle {
-                                height: 28px;
+                                height: 32px;
                                 border-radius: 4px;
                                 background: proc-ta.has-hover ? FadeTheme.surface-hover : transparent;
                                 proc-ta := TouchArea {}
@@ -772,11 +776,11 @@ export component SettingsWindow inherits Window {
                                 HorizontalBox {
                                     padding-left: 6px;
                                     padding-right: 6px;
-                                    spacing: 6px;
+                                    spacing: 8px;
                                     Text {
                                         text: proc.icon;
                                         font-family: "Symbols Nerd Font Mono";
-                                        font-size: 12px;
+                                        font-size: 14px;
                                         color: FadeTheme.accent;
                                         vertical-alignment: center;
                                         width: 22px;
@@ -784,33 +788,36 @@ export component SettingsWindow inherits Window {
                                     Text {
                                         text: proc.process;
                                         color: FadeTheme.text;
-                                        font-size: 12px;
+                                        font-size: 13px;
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
+                                        min-width: 120px;
                                         overflow: elide;
                                     }
                                     if !proc.managed: Rectangle {
-                                        width: 32px;
-                                        height: 20px;
+                                        width: 44px;
+                                        height: 22px;
                                         border-radius: 4px;
                                         background: add-proc-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
+                                        border-width: 1px;
+                                        border-color: FadeTheme.border;
                                         add-proc-ta := TouchArea {
                                             mouse-cursor: pointer;
                                             clicked => { root.add-rule(proc.process); }
                                         }
                                         Text {
-                                            text: "add";
-                                            font-size: 10px;
+                                            text: "Add";
+                                            font-size: 11px;
                                             color: add-proc-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
                                             horizontal-alignment: center;
                                             vertical-alignment: center;
                                         }
                                     }
                                     if proc.managed: Text {
-                                        text: "+";
+                                        text: "✓";
                                         font-size: 12px;
                                         color: FadeTheme.text-dim;
-                                        width: 32px;
+                                        width: 44px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                     }
@@ -821,15 +828,17 @@ export component SettingsWindow inherits Window {
 
                     // Manual add row
                     HorizontalBox {
-                        spacing: 4px;
-                        height: 28px;
+                        spacing: 6px;
+                        height: 36px;
                         manual-input := LineEdit {
                             horizontal-stretch: 1;
+                            height: 36px;
+                            font-size: 13px;
                             placeholder-text: "Add process name";
                         }
                         Rectangle {
-                            width: 28px;
-                            height: 28px;
+                            width: 36px;
+                            height: 36px;
                             border-radius: 4px;
                             background: manual-add-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
                             manual-add-ta := TouchArea {
@@ -841,7 +850,7 @@ export component SettingsWindow inherits Window {
                             }
                             Text {
                                 text: "+";
-                                font-size: 14px;
+                                font-size: 18px;
                                 font-weight: 700;
                                 color: manual-add-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
                                 horizontal-alignment: center;

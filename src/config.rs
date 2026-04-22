@@ -75,6 +75,8 @@ pub struct Bucket {
     pub enabled: bool,
     #[serde(default = "default_true")]
     pub expanded: bool,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 fn default_timeout() -> u64 {
@@ -83,6 +85,12 @@ fn default_timeout() -> u64 {
 
 fn default_true() -> bool {
     true
+}
+
+/// Is this app "customized" in the UI sense (diverges from its group's timeout or action)?
+/// Icon-only overrides or enabled-state don't count — only timeout/action do.
+pub fn app_is_customized(bucket: &Bucket, rule: &AppRule) -> bool {
+    rule.timeout_mins != bucket.timeout_mins || rule.action != bucket.action
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -94,6 +102,8 @@ pub struct AppRule {
     pub action: Action,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -146,6 +156,28 @@ impl Config {
         }
 
         None
+    }
+
+    /// Resolve the icon glyph to display for a process, preferring an override on its AppRule.
+    pub fn icon_for_app(&self, process: &str) -> String {
+        let process_lower = process.to_lowercase();
+        self.app_rule
+            .iter()
+            .find(|r| r.process.to_lowercase() == process_lower)
+            .and_then(|r| r.icon.clone())
+            .unwrap_or_else(|| crate::icons::process_icon(process).to_string())
+    }
+
+    /// Resolve the icon glyph to display for a bucket by index.
+    pub fn icon_for_bucket(&self, idx: usize) -> String {
+        self.bucket
+            .get(idx)
+            .map(|b| {
+                b.icon
+                    .clone()
+                    .unwrap_or_else(|| crate::icons::bucket_icon(&b.name).to_string())
+            })
+            .unwrap_or_default()
     }
 
     /// Check if a process is in the hidden list.
@@ -237,6 +269,7 @@ fn default_buckets() -> Vec<Bucket> {
             action: Action::Minimize,
             enabled: false, // opt-in
             expanded: true,
+            icon: None,
         },
         Bucket {
             name: "Communication".into(),
@@ -252,6 +285,7 @@ fn default_buckets() -> Vec<Bucket> {
             action: Action::Minimize,
             enabled: false,
             expanded: true,
+            icon: None,
         },
         Bucket {
             name: "Media".into(),
@@ -265,6 +299,7 @@ fn default_buckets() -> Vec<Bucket> {
             action: Action::Minimize,
             enabled: false,
             expanded: true,
+            icon: None,
         },
         Bucket {
             name: "Development".into(),
@@ -278,6 +313,7 @@ fn default_buckets() -> Vec<Bucket> {
             action: Action::Minimize,
             enabled: false,
             expanded: true,
+            icon: None,
         },
         Bucket {
             name: "Gaming".into(),
@@ -290,6 +326,7 @@ fn default_buckets() -> Vec<Bucket> {
             action: Action::Minimize,
             enabled: false,
             expanded: true,
+            icon: None,
         },
     ]
 }
@@ -316,12 +353,14 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
+            icon: None,
             }],
             app_rule: vec![AppRule {
                 process: "chrome.exe".into(),
                 timeout_mins: 5,
                 action: Action::Close,
                 enabled: true,
+                icon: None,
             }],
         };
 
@@ -341,6 +380,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
+            icon: None,
             }],
             app_rule: vec![],
         };
@@ -366,6 +406,7 @@ mod tests {
                 timeout_mins: 5,
                 action: Action::Close,
                 enabled: false,
+                icon: None,
             }],
         };
 
@@ -383,6 +424,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: false,
                 expanded: true,
+            icon: None,
             }],
             app_rule: vec![],
         };
@@ -400,6 +442,7 @@ mod tests {
                 timeout_mins: 10,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
         };
 
@@ -491,6 +534,103 @@ enabled = true
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.bucket.len(), 1);
         assert!(config.bucket[0].expanded, "expanded should default to true for old configs");
+    }
+
+    #[test]
+    fn test_icon_defaults_to_none_from_old_toml() {
+        let toml_str = r#"
+[[bucket]]
+name = "Test"
+processes = ["test.exe"]
+timeout_mins = 10
+action = "minimize"
+enabled = true
+
+[[app_rule]]
+process = "foo.exe"
+timeout_mins = 5
+action = "close"
+enabled = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.bucket[0].icon.is_none());
+        assert!(config.app_rule[0].icon.is_none());
+    }
+
+    #[test]
+    fn test_icon_roundtrip() {
+        let mut config = Config::default_config();
+        config.bucket[0].icon = Some("\u{F0E52}".into());
+        config.app_rule.push(AppRule {
+            process: "foo.exe".into(),
+            timeout_mins: 10,
+            action: Action::Minimize,
+            enabled: true,
+            icon: Some("\u{F0483}".into()),
+        });
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.bucket[0].icon.as_deref(), Some("\u{F0E52}"));
+        assert_eq!(deserialized.app_rule[0].icon.as_deref(), Some("\u{F0483}"));
+    }
+
+    #[test]
+    fn test_app_is_customized() {
+        let bucket = Bucket {
+            name: "B".into(),
+            processes: vec!["p.exe".into()],
+            timeout_mins: 15,
+            action: Action::Minimize,
+            enabled: true,
+            expanded: true,
+            icon: None,
+        };
+        let base_rule = AppRule {
+            process: "p.exe".into(),
+            timeout_mins: 15,
+            action: Action::Minimize,
+            enabled: true,
+            icon: None,
+        };
+        assert!(!app_is_customized(&bucket, &base_rule));
+        // Icon-only diff: NOT customized
+        let mut r = base_rule.clone();
+        r.icon = Some("x".into());
+        assert!(!app_is_customized(&bucket, &r));
+        // Timeout diff: customized
+        let mut r = base_rule.clone();
+        r.timeout_mins = 5;
+        assert!(app_is_customized(&bucket, &r));
+        // Action diff: customized
+        let mut r = base_rule.clone();
+        r.action = Action::Close;
+        assert!(app_is_customized(&bucket, &r));
+    }
+
+    #[test]
+    fn test_icon_for_app_fallback_and_override() {
+        let mut config = Config::default_config();
+        // No rule → falls back to catalog
+        let fallback = config.icon_for_app("chrome.exe");
+        assert_eq!(fallback, "\u{F0E28}"); // chrome glyph from icons.rs
+        // With rule override → uses override
+        config.app_rule.push(AppRule {
+            process: "chrome.exe".into(),
+            timeout_mins: 15,
+            action: Action::Minimize,
+            enabled: true,
+            icon: Some("XYZ".into()),
+        });
+        assert_eq!(config.icon_for_app("chrome.exe"), "XYZ");
+    }
+
+    #[test]
+    fn test_icon_for_bucket_fallback_and_override() {
+        let mut config = Config::default_config();
+        let first = config.icon_for_bucket(0);
+        assert!(!first.is_empty());
+        config.bucket[0].icon = Some("OVERRIDE".into());
+        assert_eq!(config.icon_for_bucket(0), "OVERRIDE");
     }
 
     #[test]
