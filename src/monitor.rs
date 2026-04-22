@@ -362,6 +362,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -385,6 +386,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -418,6 +420,7 @@ mod tests {
                 action: Action::Close,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -461,6 +464,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -487,6 +491,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -519,6 +524,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: false, // disabled,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -572,6 +578,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -606,6 +613,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -637,6 +645,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -662,6 +671,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );
@@ -766,6 +776,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             });
         }
 
@@ -788,6 +799,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
             vec![],
         );

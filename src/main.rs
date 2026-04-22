@@ -453,7 +453,8 @@ fn setup_gui_callbacks(
                     action: bucket_action,
                     enabled: true,
                     icon: Some(glyph.to_string()),
-                });
+                customized: false,
+            });
             }
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
@@ -549,20 +550,24 @@ fn setup_gui_callbacks(
             let a = a_idx as usize;
             if g < c.bucket.len() && a < c.bucket[g].processes.len() {
                 let process = c.bucket[g].processes[a].clone();
+                let process_lower = process.to_lowercase();
                 let timeout_mins = c.bucket[g].timeout_mins;
                 let action = c.bucket[g].action.clone();
-                // Only create if no app_rule exists yet
-                let exists = c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process));
-                if !exists {
+                // Flip an existing (icon-only) rule to customized, or create a new one.
+                if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
+                    rule.customized = true;
+                } else {
                     c.app_rule.push(config::AppRule {
                         process,
                         timeout_mins,
                         action,
-                        enabled: true, icon: None,
+                        enabled: true,
+                        icon: None,
+                        customized: true,
                     });
-                    let _ = c.save();
-                    do_refresh_all(&weak, &c, &snap, &search);
                 }
+                let _ = c.save();
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -637,7 +642,8 @@ fn setup_gui_callbacks(
                         action: bucket_action,
                         enabled,
                         icon: None,
-                    });
+                customized: false,
+            });
                 } else if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
                     rule.enabled = enabled;
                 }
@@ -653,6 +659,33 @@ fn setup_gui_callbacks(
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
     let search = search_state.clone();
+    window.on_assign_to_group({
+        let cfg = config.clone();
+        let weak = window.as_weak();
+        let snap = snapshot_buffer.clone();
+        let search = search_state.clone();
+        move |u_idx, g_idx| {
+            if let Ok(mut c) = cfg.write() {
+                let g = g_idx as usize;
+                if g >= c.bucket.len() { return; }
+                // Identify unassigned rule by index at call time.
+                let unassigned_processes: Vec<String> = c.app_rule.iter()
+                    .filter(|r| !process_in_any_bucket(&c, &r.process))
+                    .map(|r| r.process.clone())
+                    .collect();
+                if let Some(proc) = unassigned_processes.get(u_idx as usize) {
+                    let proc = proc.clone();
+                    let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&proc));
+                    if !already {
+                        c.bucket[g].processes.push(proc);
+                        let _ = c.save();
+                        do_refresh_all(&weak, &c, &snap, &search);
+                    }
+                }
+            }
+        }
+    });
+
     window.on_remove_unassigned(move |idx| {
         if let Ok(mut c) = cfg.write() {
             // Find the idx-th unassigned rule
@@ -744,6 +777,7 @@ fn setup_gui_callbacks(
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: true, icon: None,
+                customized: false,
             });
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
@@ -770,6 +804,7 @@ fn setup_gui_callbacks(
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: true, icon: None,
+                customized: false,
             });
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
