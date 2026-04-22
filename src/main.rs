@@ -439,6 +439,43 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    window.on_move_app(move |from_g, app_idx, to_g| {
+        if let Ok(mut c) = cfg.write() {
+            let from = from_g as usize;
+            let to = to_g as usize;
+            let a = app_idx as usize;
+            if from == to { return; }
+            if from >= c.bucket.len() || to >= c.bucket.len() { return; }
+            if a >= c.bucket[from].processes.len() { return; }
+            let process = c.bucket[from].processes.remove(a);
+            let already_there = c.bucket[to].processes
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&process));
+            if !already_there {
+                c.bucket[to].processes.push(process);
+            }
+            let _ = c.save();
+            refresh_all(&c, &weak, &snap);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_remove_from_group(move |g_idx, app_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = app_idx as usize;
+            if g >= c.bucket.len() || a >= c.bucket[g].processes.len() { return; }
+            c.bucket[g].processes.remove(a);
+            let _ = c.save();
+            refresh_all(&c, &weak, &snap);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_rename_group(move |idx, new_name| {
         let trimmed = new_name.trim().to_string();
         if trimmed.is_empty() { return; }
