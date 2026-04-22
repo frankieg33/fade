@@ -71,8 +71,11 @@ export component SettingsWindow inherits Window {
     // Search
     in-out property <string> search-text: "";
 
-    // Drawer visibility
+    // Drawer visibility + status
     in-out property <bool> drawer-open: false;
+    // 0 = none, 1 = success, 2 = warning (already added), 3 = error (empty/invalid)
+    in-out property <int> drawer-status-kind: 0;
+    in-out property <string> drawer-status-text: "";
 
     // Rename: which group is currently being renamed (-1 = none)
     in-out property <int> renaming-group: -1;
@@ -380,8 +383,8 @@ export component SettingsWindow inherits Window {
                                         }
                                         // Rename pencil
                                         Rectangle {
-                                            width: 24px;
-                                            height: 24px;
+                                            width: 30px;
+                                            height: 30px;
                                             border-radius: 4px;
                                             background: rename-ta.has-hover ? FadeTheme.surface-hover : transparent;
                                             rename-ta := TouchArea {
@@ -393,7 +396,7 @@ export component SettingsWindow inherits Window {
                                             Text {
                                                 text: "\u{F03EB}";
                                                 font-family: "Symbols Nerd Font Mono";
-                                                font-size: 13px;
+                                                font-size: 16px;
                                                 color: rename-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
@@ -425,8 +428,8 @@ export component SettingsWindow inherits Window {
                                         }
                                         // Delete group button
                                         Rectangle {
-                                            width: 24px;
-                                            height: 24px;
+                                            width: 30px;
+                                            height: 30px;
                                             border-radius: 4px;
                                             background: delete-grp-ta.has-hover ? FadeTheme.danger : transparent;
                                             delete-grp-ta := TouchArea {
@@ -434,9 +437,9 @@ export component SettingsWindow inherits Window {
                                                 clicked => { root.delete-group(g-idx); }
                                             }
                                             Text {
-                                                text: "\u{F0A7A}";
+                                                text: "\u{F0450}";
                                                 font-family: "Symbols Nerd Font Mono";
-                                                font-size: 13px;
+                                                font-size: 16px;
                                                 color: delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
@@ -632,36 +635,6 @@ export component SettingsWindow inherits Window {
                             }
                         }
 
-                        // ── "+ New Group" button ──
-                        Rectangle {
-                            height: 44px;
-                            border-radius: FadeTheme.radius;
-                            background: new-grp-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.card-bg;
-                            border-width: 1px;
-                            border-color: FadeTheme.border;
-                            new-grp-ta := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.create-group(); }
-                            }
-                            HorizontalBox {
-                                alignment: center;
-                                spacing: 6px;
-                                Text {
-                                    text: "\u{F0415}";
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 15px;
-                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                    vertical-alignment: center;
-                                }
-                                Text {
-                                    text: "New Group";
-                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    vertical-alignment: center;
-                                }
-                            }
-                        }
 
                         // ── Unassigned Rules section ──
                         if root.unassigned-rules.length > 0: Rectangle {
@@ -790,6 +763,37 @@ export component SettingsWindow inherits Window {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // ── "+ New Group" button (always at bottom of list) ──
+                        Rectangle {
+                            height: 44px;
+                            border-radius: FadeTheme.radius;
+                            background: new-grp-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.card-bg;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
+                            new-grp-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.create-group(); }
+                            }
+                            HorizontalBox {
+                                alignment: center;
+                                spacing: 6px;
+                                Text {
+                                    text: "\u{F0415}";
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 15px;
+                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "New Group";
+                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
                                 }
                             }
                         }
@@ -1544,6 +1548,10 @@ export component SettingsWindow inherits Window {
                             height: 36px;
                             font-size: 13px;
                             placeholder-text: "Add process name";
+                            accepted(val) => {
+                                root.add-process-name(val);
+                                manual-input.text = "";
+                            }
                         }
                         Rectangle {
                             width: 36px;
@@ -1566,6 +1574,17 @@ export component SettingsWindow inherits Window {
                                 vertical-alignment: center;
                             }
                         }
+                    }
+
+                    // Feedback toast
+                    if root.drawer-status-kind != 0: Text {
+                        text: root.drawer-status-text;
+                        color: root.drawer-status-kind == 1 ? FadeTheme.accent
+                             : root.drawer-status-kind == 2 ? FadeTheme.warning
+                             : FadeTheme.danger;
+                        font-size: 11px;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
                     }
                 }
             }

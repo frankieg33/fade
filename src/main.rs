@@ -868,24 +868,31 @@ fn setup_gui_callbacks(
     let search = search_state.clone();
     window.on_add_rule(move |process| {
         let process_str = process.to_string();
-        if process_str.is_empty() { return; }
+        let Some(w) = weak.upgrade() else { return; };
+        if process_str.is_empty() {
+            w.set_drawer_status_kind(3);
+            w.set_drawer_status_text("Enter a process name".into());
+            return;
+        }
         if let Ok(mut c) = cfg.write() {
-            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str)) {
-                return;
-            }
-            // Also skip if already in a bucket
-            if process_in_any_bucket(&c, &process_str) {
+            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str))
+                || process_in_any_bucket(&c, &process_str) {
+                w.set_drawer_status_kind(2);
+                w.set_drawer_status_text(format!("Already added: {}", process_str).into());
                 return;
             }
             c.app_rule.push(config::AppRule {
-                process: process_str,
+                process: process_str.clone(),
                 timeout_mins: 15,
                 action: Action::Minimize,
-                enabled: true, icon: None,
+                enabled: true,
+                icon: None,
                 customized: false,
             });
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
+            w.set_drawer_status_kind(1);
+            w.set_drawer_status_text(format!("Added: {}", process_str).into());
         }
     });
 
@@ -896,23 +903,38 @@ fn setup_gui_callbacks(
     let search = search_state.clone();
     window.on_add_process_name(move |process| {
         let process_str = process.to_string();
-        if process_str.is_empty() { return; }
+        let trimmed = process_str.trim().to_string();
+        let Some(w) = weak.upgrade() else { return; };
+        if trimmed.is_empty() {
+            w.set_drawer_status_kind(3);
+            w.set_drawer_status_text("Enter a process name".into());
+            return;
+        }
+        // Very loose "looks like a .exe or a process name" check.
+        if !trimmed.contains('.') {
+            w.set_drawer_status_kind(3);
+            w.set_drawer_status_text(format!("'{}' must include an extension (e.g. .exe)", trimmed).into());
+            return;
+        }
         if let Ok(mut c) = cfg.write() {
-            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&process_str)) {
-                return;
-            }
-            if process_in_any_bucket(&c, &process_str) {
+            if c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&trimmed))
+                || process_in_any_bucket(&c, &trimmed) {
+                w.set_drawer_status_kind(2);
+                w.set_drawer_status_text(format!("Already added: {}", trimmed).into());
                 return;
             }
             c.app_rule.push(config::AppRule {
-                process: process_str,
+                process: trimmed.clone(),
                 timeout_mins: 15,
                 action: Action::Minimize,
-                enabled: true, icon: None,
+                enabled: true,
+                icon: None,
                 customized: false,
             });
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
+            w.set_drawer_status_kind(1);
+            w.set_drawer_status_text(format!("Added: {}", trimmed).into());
         }
     });
 
