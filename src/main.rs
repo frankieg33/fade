@@ -32,6 +32,7 @@ fn main() {
         Arc::new(Mutex::new(Vec::new()));
     let foreground_timestamps: monitor::ForegroundTimestamps =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let action_log: monitor::ActionLog = Arc::new(Mutex::new(std::collections::VecDeque::new()));
     let window_visible = Arc::new(AtomicBool::new(false));
 
     // Create Slint window (but don't show it yet)
@@ -40,7 +41,7 @@ fn main() {
         Err(e) => {
             log::error!("Failed to create settings window: {}", e);
             // Continue headless — tray only
-            run_headless(config, paused, should_stop);
+            run_headless(config, paused, should_stop, action_log);
             return;
         }
     };
@@ -48,17 +49,37 @@ fn main() {
     // Shared search-query state, filters what update_gui_from_config renders.
     let search_state: Arc<RwLock<String>> = Arc::new(RwLock::new(String::new()));
 
+    // Restore window geometry from config
+    if let Ok(cfg) = config.read() {
+        if let (Some(w), Some(h)) = (cfg.general.window_width, cfg.general.window_height) {
+            window.window().set_size(slint::PhysicalSize::new(w, h));
+        }
+        if let (Some(x), Some(y)) = (cfg.general.window_x, cfg.general.window_y) {
+            window.window().set_position(slint::PhysicalPosition::new(x, y));
+        }
+    }
+
     // Populate GUI from config
     update_gui_from_config(&window, &config.read().unwrap(), &search_state.read().unwrap());
 
     // Wire up GUI callbacks
     setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone(), search_state.clone());
 
-    // Close hides to tray — does NOT quit
+    // Close hides to tray — does NOT quit, and persists window geometry.
     let window_weak = window.as_weak();
     let visible_for_close = window_visible.clone();
+    let config_for_close = config.clone();
     window.window().on_close_requested(move || {
         if let Some(w) = window_weak.upgrade() {
+            let size = w.window().size();
+            let pos = w.window().position();
+            if let Ok(mut c) = config_for_close.write() {
+                c.general.window_width = Some(size.width);
+                c.general.window_height = Some(size.height);
+                c.general.window_x = Some(pos.x);
+                c.general.window_y = Some(pos.y);
+                let _ = c.save();
+            }
             w.hide().ok();
         }
         visible_for_close.store(false, Ordering::Relaxed);
@@ -89,6 +110,7 @@ fn main() {
     let paused_for_tray = paused.clone();
     let config_for_tray = config.clone();
     let search_for_tray = search_state.clone();
+    let log_for_tray = action_log.clone();
     let visible_for_tray = window_visible.clone();
     let tray_timer = slint::Timer::default();
     tray_timer.start(
@@ -101,8 +123,10 @@ fn main() {
                         if let Ok(cfg) = config_for_tray.read() {
                             let q = search_for_tray.read().map(|s| s.clone()).unwrap_or_default();
                             update_gui_from_config(&w, &cfg, &q);
+                            refresh_activity_log(&w, &cfg, &log_for_tray);
                         }
                         w.show().ok();
+                        w.window().request_redraw();
                         visible_for_tray.store(true, Ordering::Relaxed);
                     }
                 }
@@ -124,10 +148,11 @@ fn main() {
         },
     );
 
-    // Refresh active windows in the GUI from the monitor's snapshot buffer
+    // Refresh active windows + activity log from the monitor's shared buffers
     let snapshot_for_gui = snapshot_buffer.clone();
     let config_for_gui = config.clone();
     let visible_for_gui = window_visible.clone();
+    let log_for_gui = action_log.clone();
     let gui_weak = window.as_weak();
     let gui_refresh_timer = slint::Timer::default();
     gui_refresh_timer.start(
@@ -140,6 +165,7 @@ fn main() {
             if let Some(w) = gui_weak.upgrade() {
                 if let Ok(cfg) = config_for_gui.read() {
                     refresh_active_windows(&w, &cfg, &snapshot_for_gui);
+                    refresh_activity_log(&w, &cfg, &log_for_gui);
                 }
             }
         },
@@ -160,9 +186,13 @@ fn main() {
     let monitor_stop = should_stop.clone();
     let monitor_snapshot = snapshot_buffer.clone();
     let monitor_timestamps = foreground_timestamps.clone();
+    let monitor_log = action_log.clone();
     let monitor_thread = std::thread::spawn(move || {
         let api = Win32Api::new();
-        let mut monitor = Monitor::new(api, monitor_config, monitor_paused, monitor_snapshot, monitor_timestamps);
+        let mut monitor = Monitor::new(
+            api, monitor_config, monitor_paused, monitor_snapshot,
+            monitor_timestamps, monitor_log,
+        );
         monitor.run(monitor_stop);
     });
 
@@ -289,6 +319,37 @@ fn update_gui_from_config(window: &SettingsWindow, config: &Config, search: &str
     window.set_polling_interval_secs(config.general.polling_interval_secs as i32);
     window.set_auto_start(config.general.auto_start);
     window.set_version(env!("CARGO_PKG_VERSION").into());
+}
+
+fn format_relative_time(ts: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if ts == 0 || ts > now { return "just now".into(); }
+    let age = now - ts;
+    if age < 60 { format!("{}s ago", age) }
+    else if age < 3600 { format!("{}m ago", age / 60) }
+    else if age < 86400 { format!("{}h ago", age / 3600) }
+    else { format!("{}d ago", age / 86400) }
+}
+
+/// Refresh the Activity page model from the monitor's action log.
+fn refresh_activity_log(
+    window: &SettingsWindow,
+    config: &Config,
+    log: &monitor::ActionLog,
+) {
+    if let Ok(entries) = log.lock() {
+        let models: Vec<ActivityLogModel> = entries.iter().map(|e| ActivityLogModel {
+            icon: config.icon_for_app(&e.process).into(),
+            process: e.process.clone().into(),
+            action: e.action.as_str().into(),
+            time_str: format_relative_time(e.timestamp).into(),
+            title: e.title.clone().into(),
+        }).collect();
+        window.set_activity_log(std::rc::Rc::new(slint::VecModel::from(models)).into());
+    }
 }
 
 /// Refresh the active processes in the drawer + active count.
@@ -1005,11 +1066,16 @@ fn setup_gui_callbacks(
 }
 
 /// Fallback: run without GUI if Slint window creation fails.
-fn run_headless(config: Arc<RwLock<Config>>, paused: Arc<AtomicBool>, should_stop: Arc<AtomicBool>) {
+fn run_headless(
+    config: Arc<RwLock<Config>>,
+    paused: Arc<AtomicBool>,
+    should_stop: Arc<AtomicBool>,
+    action_log: monitor::ActionLog,
+) {
     log::warn!("Running in headless mode (no GUI)");
     let api = Win32Api::new();
     let dummy_buffer = Arc::new(Mutex::new(Vec::new()));
     let foreground_timestamps = Arc::new(Mutex::new(std::collections::HashMap::new()));
-    let mut monitor = Monitor::new(api, config, paused, dummy_buffer, foreground_timestamps);
+    let mut monitor = Monitor::new(api, config, paused, dummy_buffer, foreground_timestamps, action_log);
     monitor.run(should_stop);
 }

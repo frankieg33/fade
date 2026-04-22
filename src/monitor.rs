@@ -26,6 +26,21 @@ pub struct ActiveWindowSnapshot {
     pub idle_secs: u64,
 }
 
+/// One entry in the activity log — an action Fade took.
+#[derive(Debug, Clone)]
+pub struct ActionLogEntry {
+    pub process: String,
+    pub title: String,
+    pub action: Action,
+    /// Seconds since UNIX epoch (for display formatting on the GUI side).
+    pub timestamp: u64,
+}
+
+/// Shared ring-buffer of recent actions. Most-recent first.
+pub type ActionLog = Arc<Mutex<std::collections::VecDeque<ActionLogEntry>>>;
+
+const ACTION_LOG_CAPACITY: usize = 100;
+
 /// The monitor that runs the polling loop.
 pub struct Monitor<W: WindowApi> {
     api: W,
@@ -41,6 +56,8 @@ pub struct Monitor<W: WindowApi> {
     /// Processes that had active rules last poll (lowercase).
     /// Used to detect newly managed processes and reset their idle clock.
     previously_managed: HashSet<String>,
+    /// Ring-buffer of recent actions for the Activity GUI tab.
+    action_log: ActionLog,
 }
 
 impl<W: WindowApi> Monitor<W> {
@@ -50,6 +67,7 @@ impl<W: WindowApi> Monitor<W> {
         paused: Arc<AtomicBool>,
         snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
         foreground_timestamps: ForegroundTimestamps,
+        action_log: ActionLog,
     ) -> Self {
         Self {
             api,
@@ -59,6 +77,25 @@ impl<W: WindowApi> Monitor<W> {
             current_windows: Vec::new(),
             snapshot_buffer,
             previously_managed: HashSet::new(),
+            action_log,
+        }
+    }
+
+    fn record_action(&self, process: &str, title: &str, action: Action) {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if let Ok(mut log) = self.action_log.lock() {
+            log.push_front(ActionLogEntry {
+                process: process.to_string(),
+                title: title.to_string(),
+                action,
+                timestamp: ts,
+            });
+            while log.len() > ACTION_LOG_CAPACITY {
+                log.pop_back();
+            }
         }
     }
 
@@ -223,10 +260,12 @@ impl<W: WindowApi> Monitor<W> {
                 Action::Minimize => {
                     log::info!("Minimizing: {} ({}) — idle {:.0}s", action.process, action.title, action.idle_secs);
                     self.api.minimize_window(action.hwnd);
+                    self.record_action(&action.process, &action.title, Action::Minimize);
                 }
                 Action::Close => {
                     log::info!("Closing: {} ({}) — idle {:.0}s", action.process, action.title, action.idle_secs);
                     self.api.close_window(action.hwnd);
+                    self.record_action(&action.process, &action.title, Action::Close);
                 }
             }
         }
@@ -342,12 +381,14 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(false));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
         let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
+        let action_log: ActionLog = Arc::new(Mutex::new(std::collections::VecDeque::new()));
         let monitor = Monitor::new(
             mock.clone(),
             config.clone(),
             paused.clone(),
             snapshot_buffer,
             foreground_timestamps.clone(),
+            action_log,
         );
         let mock_ref = mock.clone();
         (monitor, mock_ref, config, paused, foreground_timestamps)
@@ -708,12 +749,14 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(false));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
         let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
+        let action_log: ActionLog = Arc::new(Mutex::new(std::collections::VecDeque::new()));
         let mut monitor = Monitor::new(
             mock.clone(),
             config_arc,
             paused,
             snapshot_buffer.clone(),
             foreground_timestamps.clone(),
+            action_log,
         );
 
         mock.set_foreground(Some("other.exe"));
@@ -736,12 +779,14 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(true));
         let snapshot_buffer = Arc::new(Mutex::new(Vec::new()));
         let foreground_timestamps: ForegroundTimestamps = Arc::new(Mutex::new(HashMap::new()));
+        let action_log: ActionLog = Arc::new(Mutex::new(std::collections::VecDeque::new()));
         let mut monitor = Monitor::new(
             mock.clone(),
             config_arc,
             paused,
             snapshot_buffer.clone(),
             foreground_timestamps,
+            action_log,
         );
 
         mock.set_foreground(Some("other.exe"));
