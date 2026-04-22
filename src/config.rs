@@ -42,6 +42,15 @@ pub struct General {
     pub auto_start: bool,
     #[serde(default)]
     pub hidden_processes: Vec<String>,
+    /// Window geometry persisted across sessions. None = use preferred.
+    #[serde(default)]
+    pub window_width: Option<u32>,
+    #[serde(default)]
+    pub window_height: Option<u32>,
+    #[serde(default)]
+    pub window_x: Option<i32>,
+    #[serde(default)]
+    pub window_y: Option<i32>,
 }
 
 impl Default for General {
@@ -55,6 +64,10 @@ impl Default for General {
                 "ShellExperienceHost.exe".into(),
                 "TextInputHost.exe".into(),
             ],
+            window_width: None,
+            window_height: None,
+            window_x: None,
+            window_y: None,
         }
     }
 }

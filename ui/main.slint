@@ -45,6 +45,15 @@ export struct IconEntry {
     keywords: string,
 }
 
+// A row in the Activity log
+export struct ActivityLogModel {
+    icon: string,
+    process: string,
+    action: string,      // "minimize" or "close"
+    time_str: string,    // relative time, e.g. "3m ago"
+    title: string,
+}
+
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
@@ -58,6 +67,7 @@ export component SettingsWindow inherits Window {
     in property <[GroupModel]> groups;
     in property <[UnassignedRuleModel]> unassigned-rules;
     in property <[ActiveProcessModel]> active-processes;
+    in property <[ActivityLogModel]> activity-log;
     in property <int> managed-count: 0;
     in property <int> active-count: 0;
     in property <int> polling-interval-secs: 30;
@@ -66,7 +76,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> paused: false;
 
     // Navigation state
-    in-out property <int> current-page: 0; // 0 = Applications & Rules, 1 = General Settings
+    in-out property <int> current-page: 0; // 0 = Applications & Rules, 1 = General Settings, 2 = Activity
 
     // Search
     in-out property <string> search-text: "";
@@ -95,6 +105,8 @@ export component SettingsWindow inherits Window {
 
     // Restore-defaults confirmation state
     in-out property <bool> confirming-reset: false;
+    // Group-delete confirmation: -1 = none, else group idx awaiting second click
+    in-out property <int> confirming-delete-group: -1;
 
     // Group callbacks
     callback toggle-group(int /* group idx */, bool /* enabled */);
@@ -141,6 +153,28 @@ export component SettingsWindow inherits Window {
     // ═══════════════════════════════════════════════
     // MAIN LAYOUT: sidebar + content
     // ═══════════════════════════════════════════════
+    // Full-bleed backdrop — prevents stale pixels from leaking through
+    // when the window is shown after a long hide (Slint compositor quirk).
+    Rectangle { background: FadeTheme.bg; }
+
+    // Global Esc handler for dismissing popups
+    esc-scope := FocusScope {
+        key-pressed(e) => {
+            if (e.text == Key.Escape) {
+                root.icon-picker-group = -1;
+                root.icon-picker-app = -1;
+                root.kebab-group = -1;
+                root.kebab-app = -1;
+                root.unassigned-kebab = -1;
+                root.drawer-open = false;
+                root.renaming-group = -1;
+                root.confirming-delete-group = -1;
+                return accept;
+            }
+            reject
+        }
+    }
+
     HorizontalBox {
         padding: 0px;
         spacing: 0px;
@@ -226,6 +260,34 @@ export component SettingsWindow inherits Window {
                             text: "General Settings";
                             font-size: 13px;
                             color: root.current-page == 1 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Nav: Activity
+                Rectangle {
+                    height: 36px;
+                    border-radius: FadeTheme.radius;
+                    background: root.current-page == 2 ? FadeTheme.sidebar-active : nav2-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                    nav2-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.current-page = 2; }
+                    }
+                    HorizontalBox {
+                        padding-left: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "\u{F0150}";
+                            font-family: "Symbols Nerd Font Mono";
+                            font-size: 14px;
+                            color: root.current-page == 2 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "Activity";
+                            font-size: 13px;
+                            color: root.current-page == 2 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
                             vertical-alignment: center;
                         }
                     }
@@ -426,21 +488,35 @@ export component SettingsWindow inherits Window {
                                             current-value: group.action;
                                             selected(val) => { root.update-group-action(g-idx, val); }
                                         }
-                                        // Delete group button
+                                        // Delete group button (two-click confirm)
                                         Rectangle {
-                                            width: 30px;
+                                            width: root.confirming-delete-group == g-idx ? 60px : 30px;
                                             height: 30px;
                                             border-radius: 4px;
-                                            background: delete-grp-ta.has-hover ? FadeTheme.danger : transparent;
+                                            background: root.confirming-delete-group == g-idx
+                                                ? FadeTheme.danger
+                                                : delete-grp-ta.has-hover ? FadeTheme.danger : transparent;
+                                            border-width: root.confirming-delete-group == g-idx ? 1px : 0px;
+                                            border-color: FadeTheme.danger;
                                             delete-grp-ta := TouchArea {
                                                 mouse-cursor: pointer;
-                                                clicked => { root.delete-group(g-idx); }
+                                                clicked => {
+                                                    if (root.confirming-delete-group == g-idx) {
+                                                        root.delete-group(g-idx);
+                                                        root.confirming-delete-group = -1;
+                                                    } else {
+                                                        root.confirming-delete-group = g-idx;
+                                                    }
+                                                }
                                             }
                                             Text {
-                                                text: "\u{F0450}";
-                                                font-family: "Symbols Nerd Font Mono";
-                                                font-size: 16px;
-                                                color: delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                text: root.confirming-delete-group == g-idx ? "Delete?" : "\u{F0450}";
+                                                font-family: root.confirming-delete-group == g-idx ? "" : "Symbols Nerd Font Mono";
+                                                font-size: root.confirming-delete-group == g-idx ? 11px : 16px;
+                                                font-weight: root.confirming-delete-group == g-idx ? 600 : 400;
+                                                color: root.confirming-delete-group == g-idx
+                                                    ? FadeTheme.bg
+                                                    : delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
                                             }
@@ -1015,6 +1091,99 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+            }
+
+            // Page 2: Activity
+            if root.current-page == 2: VerticalBox {
+                padding: 20px;
+                spacing: 12px;
+
+                Text {
+                    text: "Activity";
+                    color: FadeTheme.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "Most recent " + root.activity-log.length + " actions Fade has taken. Logs reset on restart.";
+                    color: FadeTheme.text-dim;
+                    font-size: 12px;
+                }
+
+                if root.activity-log.length == 0: Rectangle {
+                    height: 80px;
+                    border-radius: FadeTheme.radius;
+                    background: FadeTheme.card-bg;
+                    border-width: 1px;
+                    border-color: FadeTheme.border;
+                    Text {
+                        text: "No activity yet — Fade hasn't minimized or closed any windows in this session.";
+                        color: FadeTheme.text-dim;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if root.activity-log.length > 0: ScrollView {
+                    vertical-stretch: 1;
+                    VerticalBox {
+                        padding: 0px;
+                        spacing: 2px;
+                        for entry in root.activity-log: Rectangle {
+                            height: 36px;
+                            border-radius: 4px;
+                            background: FadeTheme.surface;
+                            HorizontalBox {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 10px;
+                                Text {
+                                    text: entry.icon;
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: FadeTheme.accent;
+                                    vertical-alignment: center;
+                                    width: 22px;
+                                }
+                                Text {
+                                    text: entry.process;
+                                    color: FadeTheme.text;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    width: 150px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: entry.action;
+                                    color: entry.action == "close" ? FadeTheme.danger : FadeTheme.text-dim;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    width: 70px;
+                                }
+                                Text {
+                                    text: entry.title;
+                                    color: FadeTheme.text-dim;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: entry.time_str;
+                                    color: FadeTheme.text-dim;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                    width: 70px;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
             }
 
             // ── Kebab menu (floating overlay: Move to / Remove) ──
