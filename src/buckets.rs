@@ -14,6 +14,7 @@ mod tests {
             action: Action::Minimize,
             enabled: true,
             expanded: true,
+            icon: None,
         };
         assert_eq!(bucket.processes.len(), 2);
     }

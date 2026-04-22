@@ -361,6 +361,7 @@ mod tests {
                 timeout_mins: 0, // immediate timeout
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -383,6 +384,7 @@ mod tests {
                 timeout_mins: 0, // immediate
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -415,6 +417,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Close,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -457,6 +460,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -482,6 +486,7 @@ mod tests {
                 timeout_mins: 1,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -512,7 +517,8 @@ mod tests {
                 process: "notepad.exe".into(),
                 timeout_mins: 0,
                 action: Action::Minimize,
-                enabled: false, // disabled
+                enabled: false, // disabled,
+                icon: None,
             }],
             vec![],
         );
@@ -539,6 +545,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
+            icon: None,
             }],
         );
         let (mut monitor, mock, _, _, timestamps) = setup(config);
@@ -564,6 +571,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -597,6 +605,7 @@ mod tests {
                 timeout_mins: 999, // very long timeout
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -627,6 +636,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -651,6 +661,7 @@ mod tests {
                 timeout_mins: 15,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
@@ -754,6 +765,7 @@ mod tests {
                 timeout_mins: 0,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             });
         }
 
@@ -775,6 +787,7 @@ mod tests {
                 timeout_mins: 1,
                 action: Action::Minimize,
                 enabled: true,
+                icon: None,
             }],
             vec![],
         );
