@@ -2,6 +2,7 @@ mod autostart;
 mod buckets;
 mod config;
 mod filter;
+mod icon_catalog;
 mod icons;
 mod monitor;
 mod tray;
