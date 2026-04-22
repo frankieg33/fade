@@ -68,12 +68,16 @@ export component SettingsWindow inherits Window {
     // Drawer visibility
     in-out property <bool> drawer-open: false;
 
+    // Rename: which group is currently being renamed (-1 = none)
+    in-out property <int> renaming-group: -1;
+
     // Group callbacks
     callback toggle-group(int /* group idx */, bool /* enabled */);
     callback update-group-timeout(int /* group idx */, int /* mins */);
     callback update-group-action(int /* group idx */, string /* action */);
     callback add-app-to-group(int /* group idx */, string /* process */);
     callback toggle-group-expanded(int /* group idx */);
+    callback rename-group(int /* group idx */, string /* new name */);
 
     // App-in-group callbacks
     callback customize-app(int /* group idx */, int /* app idx */);
@@ -306,13 +310,43 @@ export component SettingsWindow inherits Window {
                                             vertical-alignment: center;
                                             width: 22px;
                                         }
-                                        Text {
+                                        if root.renaming-group != g-idx: Text {
                                             text: group.name;
                                             color: FadeTheme.text;
                                             font-size: 14px;
                                             font-weight: 700;
                                             vertical-alignment: center;
                                             horizontal-stretch: 1;
+                                        }
+                                        if root.renaming-group == g-idx: LineEdit {
+                                            text: group.name;
+                                            horizontal-stretch: 1;
+                                            font-size: 14px;
+                                            accepted(val) => {
+                                                root.rename-group(g-idx, val);
+                                                root.renaming-group = -1;
+                                            }
+                                        }
+                                        // Rename pencil
+                                        Rectangle {
+                                            width: 24px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            background: rename-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                            rename-ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.renaming-group = root.renaming-group == g-idx ? -1 : g-idx;
+                                                }
+                                            }
+                                            Text {
+                                                text: "\u{F03EB}";
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 13px;
+                                                color: rename-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                         // Group timeout
                                         Text {

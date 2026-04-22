@@ -373,6 +373,22 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    window.on_rename_group(move |idx, new_name| {
+        let trimmed = new_name.trim().to_string();
+        if trimmed.is_empty() { return; }
+        if let Ok(mut c) = cfg.write() {
+            let idx = idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].name = trimmed;
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
     window.on_add_app_to_group(move |g_idx, process| {
         let process_str = process.to_string();
         if process_str.is_empty() { return; }
