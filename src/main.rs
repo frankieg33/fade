@@ -45,11 +45,14 @@ fn main() {
         }
     };
 
+    // Shared search-query state, filters what update_gui_from_config renders.
+    let search_state: Arc<RwLock<String>> = Arc::new(RwLock::new(String::new()));
+
     // Populate GUI from config
-    update_gui_from_config(&window, &config.read().unwrap());
+    update_gui_from_config(&window, &config.read().unwrap(), &search_state.read().unwrap());
 
     // Wire up GUI callbacks
-    setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone());
+    setup_gui_callbacks(&window, config.clone(), snapshot_buffer.clone(), search_state.clone());
 
     // Close hides to tray — does NOT quit
     let window_weak = window.as_weak();
@@ -85,6 +88,7 @@ fn main() {
     let window_weak = window.as_weak();
     let paused_for_tray = paused.clone();
     let config_for_tray = config.clone();
+    let search_for_tray = search_state.clone();
     let visible_for_tray = window_visible.clone();
     let tray_timer = slint::Timer::default();
     tray_timer.start(
@@ -95,7 +99,8 @@ fn main() {
                 tray::TrayAction::ShowSettings => {
                     if let Some(w) = window_weak.upgrade() {
                         if let Ok(cfg) = config_for_tray.read() {
-                            update_gui_from_config(&w, &cfg);
+                            let q = search_for_tray.read().map(|s| s.clone()).unwrap_or_default();
+                            update_gui_from_config(&w, &cfg, &q);
                         }
                         w.show().ok();
                         visible_for_tray.store(true, Ordering::Relaxed);
@@ -197,27 +202,36 @@ fn find_app_rule<'a>(config: &'a Config, process: &str) -> Option<&'a config::Ap
 }
 
 /// Build GroupModel list from config buckets.
-fn build_groups(config: &Config) -> Vec<GroupModel> {
-    config.bucket.iter().enumerate().map(|(g_idx, bucket)| {
-        let apps: Vec<GroupAppModel> = bucket.processes.iter().map(|proc| {
-            let rule = find_app_rule(config, proc);
-            let customized = rule.map(|r| config::app_is_customized(bucket, r)).unwrap_or(false);
-            let (enabled, timeout, action) = if let Some(r) = rule {
-                (r.enabled, r.timeout_mins as i32, r.action.as_str().into())
-            } else {
-                (bucket.enabled, bucket.timeout_mins as i32, bucket.action.as_str().into())
-            };
-            GroupAppModel {
-                icon: config.icon_for_app(proc).into(),
-                process: proc.clone().into(),
-                customized,
-                enabled,
-                timeout_mins: timeout,
-                action,
-            }
-        }).collect();
+fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
+    let q = search.trim().to_lowercase();
+    config.bucket.iter().enumerate().filter_map(|(g_idx, bucket)| {
+        let name_matches = q.is_empty() || bucket.name.to_lowercase().contains(&q);
+        let apps: Vec<GroupAppModel> = bucket.processes.iter()
+            .filter(|proc| q.is_empty() || name_matches || proc.to_lowercase().contains(&q))
+            .map(|proc| {
+                let rule = find_app_rule(config, proc);
+                let customized = rule.map(|r| config::app_is_customized(bucket, r)).unwrap_or(false);
+                let (enabled, timeout, action) = if let Some(r) = rule {
+                    (r.enabled, r.timeout_mins as i32, r.action.as_str().into())
+                } else {
+                    (bucket.enabled, bucket.timeout_mins as i32, bucket.action.as_str().into())
+                };
+                GroupAppModel {
+                    icon: config.icon_for_app(proc).into(),
+                    process: proc.clone().into(),
+                    customized,
+                    enabled,
+                    timeout_mins: timeout,
+                    action,
+                }
+            }).collect();
 
-        GroupModel {
+        // Drop group entirely if search is non-empty and neither the name nor any app matched.
+        if !q.is_empty() && !name_matches && apps.is_empty() {
+            return None;
+        }
+
+        Some(GroupModel {
             icon: config.icon_for_bucket(g_idx).into(),
             name: bucket.name.clone().into(),
             enabled: bucket.enabled,
@@ -225,14 +239,16 @@ fn build_groups(config: &Config) -> Vec<GroupModel> {
             action: bucket.action.as_str().into(),
             apps: std::rc::Rc::new(slint::VecModel::from(apps)).into(),
             expanded: bucket.expanded,
-        }
+        })
     }).collect()
 }
 
 /// Build unassigned rules — app_rules whose process isn't in any bucket.
-fn build_unassigned_rules(config: &Config) -> Vec<UnassignedRuleModel> {
+fn build_unassigned_rules(config: &Config, search: &str) -> Vec<UnassignedRuleModel> {
+    let q = search.trim().to_lowercase();
     config.app_rule.iter()
         .filter(|r| !process_in_any_bucket(config, &r.process))
+        .filter(|r| q.is_empty() || r.process.to_lowercase().contains(&q))
         .map(|r| UnassignedRuleModel {
             icon: config.icon_for_app(&r.process).into(),
             process: r.process.clone().into(),
@@ -262,11 +278,11 @@ fn count_managed(config: &Config) -> i32 {
 }
 
 /// Populate Slint GUI properties from the Config struct.
-fn update_gui_from_config(window: &SettingsWindow, config: &Config) {
-    let groups = build_groups(config);
+fn update_gui_from_config(window: &SettingsWindow, config: &Config, search: &str) {
+    let groups = build_groups(config, search);
     window.set_groups(std::rc::Rc::new(slint::VecModel::from(groups)).into());
 
-    let unassigned = build_unassigned_rules(config);
+    let unassigned = build_unassigned_rules(config, search);
     window.set_unassigned_rules(std::rc::Rc::new(slint::VecModel::from(unassigned)).into());
 
     window.set_managed_count(count_managed(config));
@@ -302,35 +318,40 @@ fn refresh_active_windows(
 }
 
 /// Wire Slint callbacks to modify the shared config.
+/// Full refresh helper — reads current search state and repopulates all GUI properties.
+fn do_refresh_all(
+    weak: &slint::Weak<SettingsWindow>,
+    cfg: &Config,
+    snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+    search_state: &Arc<RwLock<String>>,
+) {
+    if let Some(w) = weak.upgrade() {
+        let q = search_state.read().map(|s| s.clone()).unwrap_or_default();
+        update_gui_from_config(&w, cfg, &q);
+        refresh_active_windows(&w, cfg, snap);
+    }
+}
+
 fn setup_gui_callbacks(
     window: &SettingsWindow,
     config: Arc<RwLock<Config>>,
     snapshot_buffer: Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+    search_state: Arc<RwLock<String>>,
 ) {
-    // Helper: full refresh after any mutation
-    let refresh_all = {
-        move |cfg: &Config,
-              weak: &slint::Weak<SettingsWindow>,
-              snap: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>| {
-            if let Some(w) = weak.upgrade() {
-                update_gui_from_config(&w, cfg);
-                refresh_active_windows(&w, cfg, snap);
-            }
-        }
-    };
 
     // ── Group (bucket) callbacks ──
 
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_toggle_group(move |idx, enabled| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].enabled = enabled;
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -360,13 +381,14 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_toggle_group_expanded(move |idx| {
         if let Ok(mut c) = cfg.write() {
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].expanded = !c.bucket[idx].expanded;
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -396,13 +418,14 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_set_group_icon(move |g_idx, glyph| {
         if let Ok(mut c) = cfg.write() {
             let idx = g_idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].icon = Some(glyph.to_string());
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -410,6 +433,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_set_app_icon(move |g_idx, a_idx, glyph| {
         if let Ok(mut c) = cfg.write() {
             let g = g_idx as usize;
@@ -432,13 +456,14 @@ fn setup_gui_callbacks(
                 });
             }
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
     });
 
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_move_app(move |from_g, app_idx, to_g| {
         if let Ok(mut c) = cfg.write() {
             let from = from_g as usize;
@@ -455,13 +480,14 @@ fn setup_gui_callbacks(
                 c.bucket[to].processes.push(process);
             }
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
     });
 
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_remove_from_group(move |g_idx, app_idx| {
         if let Ok(mut c) = cfg.write() {
             let g = g_idx as usize;
@@ -469,13 +495,14 @@ fn setup_gui_callbacks(
             if g >= c.bucket.len() || a >= c.bucket[g].processes.len() { return; }
             c.bucket[g].processes.remove(a);
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
     });
 
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_rename_group(move |idx, new_name| {
         let trimmed = new_name.trim().to_string();
         if trimmed.is_empty() { return; }
@@ -484,7 +511,7 @@ fn setup_gui_callbacks(
             if idx < c.bucket.len() {
                 c.bucket[idx].name = trimmed;
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -492,6 +519,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_add_app_to_group(move |g_idx, process| {
         let process_str = process.to_string();
         if process_str.is_empty() { return; }
@@ -502,7 +530,7 @@ fn setup_gui_callbacks(
                 if !already {
                     c.bucket[g].processes.push(process_str);
                     let _ = c.save();
-                    refresh_all(&c, &weak, &snap);
+                    do_refresh_all(&weak, &c, &snap, &search);
                 }
             }
         }
@@ -514,6 +542,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_customize_app(move |g_idx, a_idx| {
         if let Ok(mut c) = cfg.write() {
             let g = g_idx as usize;
@@ -532,7 +561,7 @@ fn setup_gui_callbacks(
                         enabled: true, icon: None,
                     });
                     let _ = c.save();
-                    refresh_all(&c, &weak, &snap);
+                    do_refresh_all(&weak, &c, &snap, &search);
                 }
             }
         }
@@ -542,6 +571,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_reset_app_to_group(move |g_idx, a_idx| {
         if let Ok(mut c) = cfg.write() {
             let g = g_idx as usize;
@@ -550,7 +580,7 @@ fn setup_gui_callbacks(
                 let process_lower = c.bucket[g].processes[a].to_lowercase();
                 c.app_rule.retain(|r| r.process.to_lowercase() != process_lower);
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -588,6 +618,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_toggle_app(move |g_idx, a_idx, enabled| {
         if let Ok(mut c) = cfg.write() {
             let g = g_idx as usize;
@@ -611,7 +642,7 @@ fn setup_gui_callbacks(
                     rule.enabled = enabled;
                 }
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -621,6 +652,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_remove_unassigned(move |idx| {
         if let Ok(mut c) = cfg.write() {
             // Find the idx-th unassigned rule
@@ -632,7 +664,7 @@ fn setup_gui_callbacks(
                 let proc = proc.clone();
                 c.app_rule.retain(|r| r.process.to_lowercase() != proc);
                 let _ = c.save();
-                refresh_all(&c, &weak, &snap);
+                do_refresh_all(&weak, &c, &snap, &search);
             }
         }
     });
@@ -640,6 +672,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_toggle_unassigned(move |idx, enabled| {
         if let Ok(mut c) = cfg.write() {
             let unassigned_processes: Vec<String> = c.app_rule.iter()
@@ -650,7 +683,7 @@ fn setup_gui_callbacks(
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
                     rule.enabled = enabled;
                     let _ = c.save();
-                    refresh_all(&c, &weak, &snap);
+                    do_refresh_all(&weak, &c, &snap, &search);
                 }
             }
         }
@@ -694,6 +727,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_add_rule(move |process| {
         let process_str = process.to_string();
         if process_str.is_empty() { return; }
@@ -712,7 +746,7 @@ fn setup_gui_callbacks(
                 enabled: true, icon: None,
             });
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
     });
 
@@ -720,6 +754,7 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_add_process_name(move |process| {
         let process_str = process.to_string();
         if process_str.is_empty() { return; }
@@ -737,7 +772,7 @@ fn setup_gui_callbacks(
                 enabled: true, icon: None,
             });
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
     });
 
@@ -783,11 +818,25 @@ fn setup_gui_callbacks(
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_search_changed(move |query| {
+        if let Ok(mut s) = search.write() {
+            *s = query.to_string();
+        }
+        if let Ok(c) = cfg.read() {
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_restore_defaults(move || {
         if let Ok(mut c) = cfg.write() {
             *c = Config::default_config();
             let _ = c.save();
-            refresh_all(&c, &weak, &snap);
+            do_refresh_all(&weak, &c, &snap, &search);
         }
         log::info!("Config restored to defaults");
     });
