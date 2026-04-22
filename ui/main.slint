@@ -82,10 +82,13 @@ export component SettingsWindow inherits Window {
     in-out property <int> icon-picker-app: -1;    // -1 = picking group icon; else app idx within group
     in-out property <string> icon-search-text: "";
     in property <[IconEntry]> icon-results;
+    in-out property <string> icon-hovered-name: "";
 
     // Kebab menu state (move/remove app)
     in-out property <int> kebab-group: -1;
     in-out property <int> kebab-app: -1;
+    // Kebab menu for unassigned rules (-1 = closed)
+    in-out property <int> unassigned-kebab: -1;
 
     // Restore-defaults confirmation state
     in-out property <bool> confirming-reset: false;
@@ -102,6 +105,7 @@ export component SettingsWindow inherits Window {
     callback icon-search-changed(string /* query */);
     callback move-app(int /* from group */, int /* app idx */, int /* to group */);
     callback remove-from-group(int /* group idx */, int /* app idx */);
+    callback assign-to-group(int /* unassigned idx */, int /* to group */);
 
     // App-in-group callbacks
     callback customize-app(int /* group idx */, int /* app idx */);
@@ -340,6 +344,7 @@ export component SettingsWindow inherits Window {
                                                     root.icon-picker-group = g-idx;
                                                     root.icon-picker-app = -1;
                                                     root.icon-search-text = "";
+                                                    root.icon-hovered-name = "";
                                                     root.icon-search-changed("");
                                                 }
                                             }
@@ -482,6 +487,7 @@ export component SettingsWindow inherits Window {
                                                         root.icon-picker-group = g-idx;
                                                         root.icon-picker-app = a-idx;
                                                         root.icon-search-text = "";
+                                                    root.icon-hovered-name = "";
                                                         root.icon-search-changed("");
                                                     }
                                                 }
@@ -623,7 +629,7 @@ export component SettingsWindow inherits Window {
                                         padding-left: 12px;
                                         spacing: 8px;
                                         Text {
-                                            text: "Special \"Individual Rules (Unassigned)\" Group";
+                                            text: "Ungrouped";
                                             color: FadeTheme.text;
                                             font-size: 13px;
                                             font-weight: 600;
@@ -690,6 +696,25 @@ export component SettingsWindow inherits Window {
                                                 model: ["minimize", "close"];
                                                 current-value: urule.action;
                                                 selected(val) => { root.update-unassigned-action(u-idx, val); }
+                                            }
+                                            // Assign-to-group kebab
+                                            Rectangle {
+                                                width: 26px;
+                                                height: 22px;
+                                                border-radius: 4px;
+                                                background: u-kebab-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                                u-kebab-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => { root.unassigned-kebab = u-idx; }
+                                                }
+                                                Text {
+                                                    text: "\u{F01D9}";
+                                                    font-family: "Symbols Nerd Font Mono";
+                                                    font-size: 13px;
+                                                    color: u-kebab-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
                                             }
                                             // Remove button
                                             Rectangle {
@@ -971,9 +996,9 @@ export component SettingsWindow inherits Window {
                         }
 
                         for dest[d-idx] in root.groups: Rectangle {
-                            height: 30px;
+                            height: d-idx == root.kebab-group ? 0px : 30px;
                             border-radius: 4px;
-                            background: dest-ta.has-hover && d-idx != root.kebab-group ? FadeTheme.surface-hover : transparent;
+                            background: dest-ta.has-hover ? FadeTheme.surface-hover : transparent;
                             visible: d-idx != root.kebab-group;
                             dest-ta := TouchArea {
                                 mouse-cursor: pointer;
@@ -1021,12 +1046,76 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                             Text {
-                                text: "Remove from group";
+                                text: "Move to Ungrouped";
                                 color: remove-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
                                 font-size: 13px;
                                 horizontal-alignment: left;
                                 vertical-alignment: center;
                                 x: 10px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Unassigned kebab menu (Assign to group) ──
+            if root.unassigned-kebab != -1: Rectangle {
+                background: transparent;
+                TouchArea {
+                    clicked => { root.unassigned-kebab = -1; }
+                }
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 260px;
+                    height: Math.min(440px, 50px + root.groups.length * 32px);
+                    background: FadeTheme.drawer-bg;
+                    border-radius: FadeTheme.radius;
+                    border-width: 1px;
+                    border-color: FadeTheme.drawer-border;
+                    drop-shadow-blur: 16px;
+                    drop-shadow-color: #00000066;
+                    TouchArea {}
+
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 4px;
+                        Text {
+                            text: "Assign to group:";
+                            color: FadeTheme.text-dim;
+                            font-size: 11px;
+                            height: 20px;
+                        }
+                        for dest[d-idx] in root.groups: Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
+                            background: ug-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                            ug-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.assign-to-group(root.unassigned-kebab, d-idx);
+                                    root.unassigned-kebab = -1;
+                                }
+                            }
+                            HorizontalBox {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text {
+                                    text: dest.icon;
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: FadeTheme.accent;
+                                    vertical-alignment: center;
+                                    width: 20px;
+                                }
+                                Text {
+                                    text: dest.name;
+                                    color: FadeTheme.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
                             }
                         }
                     }
@@ -1118,6 +1207,11 @@ export component SettingsWindow inherits Window {
                                     cell-ta := TouchArea {
                                         mouse-cursor: pointer;
                                         enabled: parent.has-entry;
+                                        changed has-hover => {
+                                            if (self.has-hover && parent.has-entry) {
+                                                root.icon-hovered-name = root.icon-results[parent.entry-idx].keywords;
+                                            }
+                                        }
                                         clicked => {
                                             if (root.icon-picker-app == -1) {
                                                 root.set-group-icon(root.icon-picker-group, root.icon-results[parent.entry-idx].glyph);
@@ -1141,12 +1235,15 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    // Footer hint
+                    // Footer: count + hovered keywords when searching
                     Text {
-                        text: root.icon-results.length + " icon" + (root.icon-results.length == 1 ? "" : "s");
+                        text: root.icon-search-text != "" && root.icon-hovered-name != ""
+                            ? root.icon-hovered-name + "  —  " + root.icon-results.length + " matches"
+                            : root.icon-results.length + " icon" + (root.icon-results.length == 1 ? "" : "s");
                         color: FadeTheme.text-dim;
                         font-size: 11px;
                         horizontal-alignment: center;
+                        overflow: elide;
                     }
                 }
             }

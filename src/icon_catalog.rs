@@ -12,7 +12,7 @@ pub struct IconEntry {
 /// Keyword strings include synonyms so search is forgiving.
 pub const CATALOG: &[IconEntry] = &[
     // Browsers / web
-    IconEntry { glyph: "\u{F0E28}", keywords: "browser chrome web" },
+    IconEntry { glyph: "\u{F02AD}", keywords: "browser chrome google web" },
     IconEntry { glyph: "\u{F0239}", keywords: "browser firefox web fox" },
     IconEntry { glyph: "\u{F01E9}", keywords: "browser edge microsoft web" },
     IconEntry { glyph: "\u{F0E5D}", keywords: "browser brave lion web" },

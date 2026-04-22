@@ -87,10 +87,13 @@ fn default_true() -> bool {
     true
 }
 
-/// Is this app "customized" in the UI sense (diverges from its group's timeout or action)?
-/// Icon-only overrides or enabled-state don't count — only timeout/action do.
+/// Is this app "customized" in the UI sense (inline slider/combo visible)?
+/// True if either (a) the user explicitly clicked Edit, or (b) the rule's
+/// timeout/action diverges from the group's current values.
 pub fn app_is_customized(bucket: &Bucket, rule: &AppRule) -> bool {
-    rule.timeout_mins != bucket.timeout_mins || rule.action != bucket.action
+    rule.customized
+        || rule.timeout_mins != bucket.timeout_mins
+        || rule.action != bucket.action
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -104,6 +107,11 @@ pub struct AppRule {
     pub enabled: bool,
     #[serde(default)]
     pub icon: Option<String>,
+    /// True when the user explicitly clicked "Edit" to customize this app.
+    /// Icon-only overrides (via picker) leave this false so the inline
+    /// slider/combo don't appear for apps that just have a custom icon.
+    #[serde(default)]
+    pub customized: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -361,6 +369,7 @@ mod tests {
                 action: Action::Close,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
         };
 
@@ -407,6 +416,7 @@ mod tests {
                 action: Action::Close,
                 enabled: false,
                 icon: None,
+                customized: false,
             }],
         };
 
@@ -443,6 +453,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 icon: None,
+                customized: false,
             }],
         };
 
@@ -567,6 +578,7 @@ enabled = true
             action: Action::Minimize,
             enabled: true,
             icon: Some("\u{F0483}".into()),
+            customized: false,
         });
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
@@ -591,7 +603,8 @@ enabled = true
             action: Action::Minimize,
             enabled: true,
             icon: None,
-        };
+                customized: false,
+            };
         assert!(!app_is_customized(&bucket, &base_rule));
         // Icon-only diff: NOT customized
         let mut r = base_rule.clone();
@@ -612,7 +625,7 @@ enabled = true
         let mut config = Config::default_config();
         // No rule → falls back to catalog
         let fallback = config.icon_for_app("chrome.exe");
-        assert_eq!(fallback, "\u{F0E28}"); // chrome glyph from icons.rs
+        assert_eq!(fallback, "\u{F02AD}"); // chrome glyph from icons.rs
         // With rule override → uses override
         config.app_rule.push(AppRule {
             process: "chrome.exe".into(),
@@ -620,7 +633,8 @@ enabled = true
             action: Action::Minimize,
             enabled: true,
             icon: Some("XYZ".into()),
-        });
+                customized: false,
+            });
         assert_eq!(config.icon_for_app("chrome.exe"), "XYZ");
     }
 

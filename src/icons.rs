@@ -3,7 +3,7 @@
 pub fn process_icon(process: &str) -> &'static str {
     match process.to_lowercase().as_str() {
         // Browsers
-        "chrome.exe" => "\u{F0E28}",
+        "chrome.exe" => "\u{F02AD}",
         "firefox.exe" => "\u{F0239}",
         "msedge.exe" => "\u{F01E9}",
         "brave.exe" => "\u{F0E5D}",
