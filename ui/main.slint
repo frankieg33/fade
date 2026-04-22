@@ -87,6 +87,9 @@ export component SettingsWindow inherits Window {
     in-out property <int> kebab-group: -1;
     in-out property <int> kebab-app: -1;
 
+    // Restore-defaults confirmation state
+    in-out property <bool> confirming-reset: false;
+
     // Group callbacks
     callback toggle-group(int /* group idx */, bool /* enabled */);
     callback update-group-timeout(int /* group idx */, int /* mins */);
@@ -121,6 +124,7 @@ export component SettingsWindow inherits Window {
     callback set-polling-interval(int /* secs */);
     callback set-auto-start(bool);
     callback hide-process(string /* process */);
+    callback restore-defaults();
 
     // ═══════════════════════════════════════════════
     // MAIN LAYOUT: sidebar + content
@@ -805,6 +809,113 @@ export component SettingsWindow inherits Window {
                 }
 
                 Rectangle { vertical-stretch: 1; }
+
+                // ── Danger Zone: Restore Defaults ──
+                Rectangle {
+                    height: 110px;
+                    border-radius: FadeTheme.radius;
+                    background: FadeTheme.card-bg;
+                    border-width: 1px;
+                    border-color: FadeTheme.danger;
+
+                    VerticalBox {
+                        padding: 14px;
+                        spacing: 8px;
+
+                        Text {
+                            text: "Danger Zone";
+                            color: FadeTheme.danger;
+                            font-size: 13px;
+                            font-weight: 700;
+                        }
+
+                        HorizontalBox {
+                            padding: 0px;
+                            spacing: 12px;
+
+                            VerticalBox {
+                                padding: 0px;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: "Restore defaults";
+                                    color: FadeTheme.text;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Wipes custom rules, added processes, and all group customizations. Cannot be undone.";
+                                    color: FadeTheme.text-dim;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            if !root.confirming-reset: Rectangle {
+                                width: 140px;
+                                height: 30px;
+                                border-radius: 4px;
+                                background: reset-btn-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.danger;
+                                reset-btn-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.confirming-reset = true; }
+                                }
+                                Text {
+                                    text: "Restore Defaults";
+                                    color: reset-btn-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if root.confirming-reset: Rectangle {
+                                width: 80px;
+                                height: 30px;
+                                border-radius: 4px;
+                                background: yes-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.danger;
+                                yes-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.restore-defaults();
+                                        root.confirming-reset = false;
+                                    }
+                                }
+                                Text {
+                                    text: "Yes, reset";
+                                    color: yes-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if root.confirming-reset: Rectangle {
+                                width: 70px;
+                                height: 30px;
+                                border-radius: 4px;
+                                background: no-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.border;
+                                no-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.confirming-reset = false; }
+                                }
+                                Text {
+                                    text: "Cancel";
+                                    color: FadeTheme.text;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Status bar
                 Rectangle {

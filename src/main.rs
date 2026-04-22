@@ -779,6 +779,18 @@ fn setup_gui_callbacks(
             }
         }
     });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_restore_defaults(move || {
+        if let Ok(mut c) = cfg.write() {
+            *c = Config::default_config();
+            let _ = c.save();
+            refresh_all(&c, &weak, &snap);
+        }
+        log::info!("Config restored to defaults");
+    });
 }
 
 /// Fallback: run without GUI if Slint window creation fails.
