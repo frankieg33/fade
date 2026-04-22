@@ -371,6 +371,71 @@ fn setup_gui_callbacks(
         }
     });
 
+    // Populate icon picker with full catalog on startup.
+    window.set_icon_results(std::rc::Rc::new(slint::VecModel::from(
+        icon_catalog::CATALOG.iter().map(|e| IconEntry {
+            glyph: e.glyph.into(),
+            keywords: e.keywords.into(),
+        }).collect::<Vec<_>>()
+    )).into());
+
+    let weak = window.as_weak();
+    window.on_icon_search_changed(move |query| {
+        let results: Vec<IconEntry> = icon_catalog::search(&query)
+            .into_iter()
+            .map(|e| IconEntry {
+                glyph: e.glyph.into(),
+                keywords: e.keywords.into(),
+            })
+            .collect();
+        if let Some(w) = weak.upgrade() {
+            w.set_icon_results(std::rc::Rc::new(slint::VecModel::from(results)).into());
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_set_group_icon(move |g_idx, glyph| {
+        if let Ok(mut c) = cfg.write() {
+            let idx = g_idx as usize;
+            if idx < c.bucket.len() {
+                c.bucket[idx].icon = Some(glyph.to_string());
+                let _ = c.save();
+                refresh_all(&c, &weak, &snap);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    window.on_set_app_icon(move |g_idx, a_idx, glyph| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = a_idx as usize;
+            if g >= c.bucket.len() || a >= c.bucket[g].processes.len() { return; }
+            let process = c.bucket[g].processes[a].clone();
+            let process_lower = process.to_lowercase();
+            // Find-or-create an AppRule so we can attach the icon.
+            if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
+                rule.icon = Some(glyph.to_string());
+            } else {
+                let bucket_timeout = c.bucket[g].timeout_mins;
+                let bucket_action = c.bucket[g].action.clone();
+                c.app_rule.push(config::AppRule {
+                    process,
+                    timeout_mins: bucket_timeout,
+                    action: bucket_action,
+                    enabled: true,
+                    icon: Some(glyph.to_string()),
+                });
+            }
+            let _ = c.save();
+            refresh_all(&c, &weak, &snap);
+        }
+    });
+
     let cfg = config.clone();
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();

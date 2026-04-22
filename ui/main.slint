@@ -39,6 +39,12 @@ export struct ActiveProcessModel {
     managed: bool,          // already has a rule or is in a bucket
 }
 
+// Icon picker entry
+export struct IconEntry {
+    glyph: string,
+    keywords: string,
+}
+
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
@@ -71,6 +77,12 @@ export component SettingsWindow inherits Window {
     // Rename: which group is currently being renamed (-1 = none)
     in-out property <int> renaming-group: -1;
 
+    // Icon picker state
+    in-out property <int> icon-picker-group: -1;  // -1 = picker closed
+    in-out property <int> icon-picker-app: -1;    // -1 = picking group icon; else app idx within group
+    in-out property <string> icon-search-text: "";
+    in property <[IconEntry]> icon-results;
+
     // Group callbacks
     callback toggle-group(int /* group idx */, bool /* enabled */);
     callback update-group-timeout(int /* group idx */, int /* mins */);
@@ -78,6 +90,9 @@ export component SettingsWindow inherits Window {
     callback add-app-to-group(int /* group idx */, string /* process */);
     callback toggle-group-expanded(int /* group idx */);
     callback rename-group(int /* group idx */, string /* new name */);
+    callback set-group-icon(int /* group idx */, string /* glyph */);
+    callback set-app-icon(int /* group idx */, int /* app idx */, string /* glyph */);
+    callback icon-search-changed(string /* query */);
 
     // App-in-group callbacks
     callback customize-app(int /* group idx */, int /* app idx */);
@@ -302,13 +317,28 @@ export component SettingsWindow inherits Window {
                                             checked: group.enabled;
                                             toggled => { root.toggle-group(g-idx, self.checked); }
                                         }
-                                        Text {
-                                            text: group.icon;
-                                            font-family: "Symbols Nerd Font Mono";
-                                            font-size: 16px;
-                                            color: FadeTheme.accent;
-                                            vertical-alignment: center;
-                                            width: 22px;
+                                        Rectangle {
+                                            width: 28px;
+                                            height: 28px;
+                                            border-radius: 4px;
+                                            background: grp-icon-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                            grp-icon-ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.icon-picker-group = g-idx;
+                                                    root.icon-picker-app = -1;
+                                                    root.icon-search-text = "";
+                                                    root.icon-search-changed("");
+                                                }
+                                            }
+                                            Text {
+                                                text: group.icon;
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 16px;
+                                                color: FadeTheme.accent;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                         if root.renaming-group != g-idx: Text {
                                             text: group.name;
@@ -429,13 +459,28 @@ export component SettingsWindow inherits Window {
                                                 checked: app.enabled;
                                                 toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
                                             }
-                                            Text {
-                                                text: app.icon;
-                                                font-family: "Symbols Nerd Font Mono";
-                                                font-size: 16px;
-                                                color: FadeTheme.accent;
-                                                vertical-alignment: center;
-                                                width: 24px;
+                                            Rectangle {
+                                                width: 28px;
+                                                height: 28px;
+                                                border-radius: 4px;
+                                                background: app-icon-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                                app-icon-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => {
+                                                        root.icon-picker-group = g-idx;
+                                                        root.icon-picker-app = a-idx;
+                                                        root.icon-search-text = "";
+                                                        root.icon-search-changed("");
+                                                    }
+                                                }
+                                                Text {
+                                                    text: app.icon;
+                                                    font-family: "Symbols Nerd Font Mono";
+                                                    font-size: 16px;
+                                                    color: FadeTheme.accent;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
                                             }
                                             Text {
                                                 text: app.process;
@@ -743,6 +788,124 @@ export component SettingsWindow inherits Window {
                         font-size: 11px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
+                    }
+                }
+            }
+
+            // ── Icon Picker (floating overlay) ──
+            if root.icon-picker-group != -1: Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 480px;
+                height: 440px;
+                background: FadeTheme.drawer-bg;
+                border-radius: FadeTheme.radius;
+                border-width: 1px;
+                border-color: FadeTheme.drawer-border;
+                drop-shadow-blur: 16px;
+                drop-shadow-color: #00000066;
+
+                VerticalBox {
+                    padding: 12px;
+                    spacing: 8px;
+
+                    // Header
+                    HorizontalBox {
+                        spacing: 4px;
+                        Text {
+                            text: "Pick an icon";
+                            color: FadeTheme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 4px;
+                            background: close-picker-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
+                            close-picker-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.icon-picker-group = -1;
+                                    root.icon-picker-app = -1;
+                                }
+                            }
+                            Text {
+                                text: "✕";
+                                font-size: 13px;
+                                color: close-picker-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Search
+                    icon-search-input := LineEdit {
+                        height: 32px;
+                        font-size: 13px;
+                        placeholder-text: "Search icons...";
+                        text <=> root.icon-search-text;
+                        edited(val) => {
+                            root.icon-search-changed(val);
+                        }
+                    }
+
+                    // Results grid
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalBox {
+                            padding: 0px;
+                            spacing: 6px;
+                            for row[row-idx] in Math.ceil(root.icon-results.length / 10): HorizontalBox {
+                                padding: 0px;
+                                spacing: 6px;
+                                for col in 10: Rectangle {
+                                    width: 40px;
+                                    height: 40px;
+                                    border-radius: 4px;
+                                    property <int> entry-idx: row-idx * 10 + col;
+                                    property <bool> has-entry: self.entry-idx < root.icon-results.length;
+                                    background: cell-ta.has-hover && self.has-entry ? FadeTheme.accent : FadeTheme.surface;
+                                    border-width: self.has-entry ? 1px : 0px;
+                                    border-color: FadeTheme.border;
+                                    visible: self.has-entry;
+                                    cell-ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        enabled: parent.has-entry;
+                                        clicked => {
+                                            if (root.icon-picker-app == -1) {
+                                                root.set-group-icon(root.icon-picker-group, root.icon-results[parent.entry-idx].glyph);
+                                            } else {
+                                                root.set-app-icon(root.icon-picker-group, root.icon-picker-app, root.icon-results[parent.entry-idx].glyph);
+                                            }
+                                            root.icon-picker-group = -1;
+                                            root.icon-picker-app = -1;
+                                        }
+                                    }
+                                    Text {
+                                        text: parent.has-entry ? root.icon-results[parent.entry-idx].glyph : "";
+                                        font-family: "Symbols Nerd Font Mono";
+                                        font-size: 20px;
+                                        color: cell-ta.has-hover ? FadeTheme.bg : FadeTheme.accent;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Footer hint
+                    Text {
+                        text: root.icon-results.length + " icon" + (root.icon-results.length == 1 ? "" : "s");
+                        color: FadeTheme.text-dim;
+                        font-size: 11px;
+                        horizontal-alignment: center;
                     }
                 }
             }
