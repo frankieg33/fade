@@ -48,9 +48,9 @@ export struct IconEntry {
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
-    preferred-width: 1020px;
-    preferred-height: 620px;
-    min-width: 880px;
+    preferred-width: 1060px;
+    preferred-height: 640px;
+    min-width: 960px;
     min-height: 400px;
     background: FadeTheme.bg;
 
@@ -100,6 +100,10 @@ export component SettingsWindow inherits Window {
     callback add-app-to-group(int /* group idx */, string /* process */);
     callback toggle-group-expanded(int /* group idx */);
     callback rename-group(int /* group idx */, string /* new name */);
+    callback create-group();
+    callback delete-group(int /* group idx */);
+    callback move-to-new-group(int /* from group */, int /* app idx */);
+    callback assign-to-new-group(int /* unassigned idx */);
     callback set-group-icon(int /* group idx */, string /* glyph */);
     callback set-app-icon(int /* group idx */, int /* app idx */, string /* glyph */);
     callback icon-search-changed(string /* query */);
@@ -419,6 +423,25 @@ export component SettingsWindow inherits Window {
                                             current-value: group.action;
                                             selected(val) => { root.update-group-action(g-idx, val); }
                                         }
+                                        // Delete group button
+                                        Rectangle {
+                                            width: 24px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            background: delete-grp-ta.has-hover ? FadeTheme.danger : transparent;
+                                            delete-grp-ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { root.delete-group(g-idx); }
+                                            }
+                                            Text {
+                                                text: "\u{F0A7A}";
+                                                font-family: "Symbols Nerd Font Mono";
+                                                font-size: 13px;
+                                                color: delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
                                         // Chevron
                                         Text {
                                             text: group.expanded ? "\u{F0140}" : "\u{F0142}";
@@ -605,6 +628,37 @@ export component SettingsWindow inherits Window {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // ── "+ New Group" button ──
+                        Rectangle {
+                            height: 44px;
+                            border-radius: FadeTheme.radius;
+                            background: new-grp-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.card-bg;
+                            border-width: 1px;
+                            border-color: FadeTheme.border;
+                            new-grp-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.create-group(); }
+                            }
+                            HorizontalBox {
+                                alignment: center;
+                                spacing: 6px;
+                                Text {
+                                    text: "\u{F0415}";
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 15px;
+                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "New Group";
+                                    color: new-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
                                 }
                             }
                         }
@@ -974,7 +1028,7 @@ export component SettingsWindow inherits Window {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     width: 260px;
-                    height: Math.min(440px, 60px + root.groups.length * 32px + 44px);
+                    height: Math.min(480px, 60px + root.groups.length * 32px + 80px);
                     background: FadeTheme.drawer-bg;
                     border-radius: FadeTheme.radius;
                     border-width: 1px;
@@ -988,11 +1042,38 @@ export component SettingsWindow inherits Window {
                         padding: 10px;
                         spacing: 4px;
 
-                        Text {
-                            text: "Move to group:";
-                            color: FadeTheme.text-dim;
-                            font-size: 11px;
-                            height: 20px;
+                        HorizontalBox {
+                            padding: 0px;
+                            spacing: 4px;
+                            Text {
+                                text: "Move to group:";
+                                color: FadeTheme.text-dim;
+                                font-size: 11px;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                width: 20px;
+                                height: 20px;
+                                border-radius: 4px;
+                                background: kebab-close-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.border;
+                                kebab-close-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.kebab-group = -1;
+                                        root.kebab-app = -1;
+                                    }
+                                }
+                                Text {
+                                    text: "✕";
+                                    color: kebab-close-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
                         }
 
                         for dest[d-idx] in root.groups: Rectangle {
@@ -1036,6 +1117,40 @@ export component SettingsWindow inherits Window {
                         Rectangle {
                             height: 30px;
                             border-radius: 4px;
+                            background: new-k-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                            new-k-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.move-to-new-group(root.kebab-group, root.kebab-app);
+                                    root.kebab-group = -1;
+                                    root.kebab-app = -1;
+                                }
+                            }
+                            HorizontalBox {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text {
+                                    text: "\u{F0415}";
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: new-k-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
+                                    vertical-alignment: center;
+                                    width: 20px;
+                                }
+                                Text {
+                                    text: "Move to new group";
+                                    color: new-k-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
                             background: remove-ta.has-hover ? FadeTheme.danger : transparent;
                             remove-ta := TouchArea {
                                 mouse-cursor: pointer;
@@ -1068,7 +1183,7 @@ export component SettingsWindow inherits Window {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     width: 260px;
-                    height: Math.min(440px, 50px + root.groups.length * 32px);
+                    height: Math.min(460px, 50px + root.groups.length * 32px + 40px);
                     background: FadeTheme.drawer-bg;
                     border-radius: FadeTheme.radius;
                     border-width: 1px;
@@ -1080,11 +1195,35 @@ export component SettingsWindow inherits Window {
                     VerticalBox {
                         padding: 10px;
                         spacing: 4px;
-                        Text {
-                            text: "Assign to group:";
-                            color: FadeTheme.text-dim;
-                            font-size: 11px;
-                            height: 20px;
+                        HorizontalBox {
+                            padding: 0px;
+                            spacing: 4px;
+                            Text {
+                                text: "Assign to group:";
+                                color: FadeTheme.text-dim;
+                                font-size: 11px;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                width: 20px;
+                                height: 20px;
+                                border-radius: 4px;
+                                background: uk-close-ta.has-hover ? FadeTheme.danger : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.border;
+                                uk-close-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.unassigned-kebab = -1; }
+                                }
+                                Text {
+                                    text: "✕";
+                                    color: uk-close-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
                         }
                         for dest[d-idx] in root.groups: Rectangle {
                             height: 30px;
@@ -1112,6 +1251,41 @@ export component SettingsWindow inherits Window {
                                 Text {
                                     text: dest.name;
                                     color: FadeTheme.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: FadeTheme.border; }
+
+                        Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
+                            background: unew-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                            unew-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.assign-to-new-group(root.unassigned-kebab);
+                                    root.unassigned-kebab = -1;
+                                }
+                            }
+                            HorizontalBox {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text {
+                                    text: "\u{F0415}";
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: unew-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
+                                    vertical-alignment: center;
+                                    width: 20px;
+                                }
+                                Text {
+                                    text: "Assign to new group";
+                                    color: unew-ta.has-hover ? FadeTheme.accent : FadeTheme.text;
                                     font-size: 13px;
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
