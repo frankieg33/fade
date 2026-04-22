@@ -83,6 +83,10 @@ export component SettingsWindow inherits Window {
     in-out property <string> icon-search-text: "";
     in property <[IconEntry]> icon-results;
 
+    // Kebab menu state (move/remove app)
+    in-out property <int> kebab-group: -1;
+    in-out property <int> kebab-app: -1;
+
     // Group callbacks
     callback toggle-group(int /* group idx */, bool /* enabled */);
     callback update-group-timeout(int /* group idx */, int /* mins */);
@@ -93,6 +97,8 @@ export component SettingsWindow inherits Window {
     callback set-group-icon(int /* group idx */, string /* glyph */);
     callback set-app-icon(int /* group idx */, int /* app idx */, string /* glyph */);
     callback icon-search-changed(string /* query */);
+    callback move-app(int /* from group */, int /* app idx */, int /* to group */);
+    callback remove-from-group(int /* group idx */, int /* app idx */);
 
     // App-in-group callbacks
     callback customize-app(int /* group idx */, int /* app idx */);
@@ -562,6 +568,29 @@ export component SettingsWindow inherits Window {
                                                     vertical-alignment: center;
                                                 }
                                             }
+
+                                            // Kebab (move/remove) button
+                                            Rectangle {
+                                                width: 26px;
+                                                height: 26px;
+                                                border-radius: 4px;
+                                                background: kebab-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                                                kebab-ta := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    clicked => {
+                                                        root.kebab-group = g-idx;
+                                                        root.kebab-app = a-idx;
+                                                    }
+                                                }
+                                                Text {
+                                                    text: "\u{F01D9}";
+                                                    font-family: "Symbols Nerd Font Mono";
+                                                    font-size: 14px;
+                                                    color: kebab-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -788,6 +817,105 @@ export component SettingsWindow inherits Window {
                         font-size: 11px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
+                    }
+                }
+            }
+
+            // ── Kebab menu (floating overlay: Move to / Remove) ──
+            if root.kebab-group != -1: Rectangle {
+                // Full-area scrim to catch click-outside
+                background: transparent;
+                TouchArea {
+                    clicked => {
+                        root.kebab-group = -1;
+                        root.kebab-app = -1;
+                    }
+                }
+                // Menu panel, centered
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 260px;
+                    height: Math.min(440px, 60px + root.groups.length * 32px + 44px);
+                    background: FadeTheme.drawer-bg;
+                    border-radius: FadeTheme.radius;
+                    border-width: 1px;
+                    border-color: FadeTheme.drawer-border;
+                    drop-shadow-blur: 16px;
+                    drop-shadow-color: #00000066;
+                    // Block scrim clicks inside the panel
+                    TouchArea {}
+
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 4px;
+
+                        Text {
+                            text: "Move to group:";
+                            color: FadeTheme.text-dim;
+                            font-size: 11px;
+                            height: 20px;
+                        }
+
+                        for dest[d-idx] in root.groups: Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
+                            background: dest-ta.has-hover && d-idx != root.kebab-group ? FadeTheme.surface-hover : transparent;
+                            visible: d-idx != root.kebab-group;
+                            dest-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                enabled: d-idx != root.kebab-group;
+                                clicked => {
+                                    root.move-app(root.kebab-group, root.kebab-app, d-idx);
+                                    root.kebab-group = -1;
+                                    root.kebab-app = -1;
+                                }
+                            }
+                            HorizontalBox {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                Text {
+                                    text: dest.icon;
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: FadeTheme.accent;
+                                    vertical-alignment: center;
+                                    width: 20px;
+                                }
+                                Text {
+                                    text: dest.name;
+                                    color: FadeTheme.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: FadeTheme.border; }
+
+                        Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
+                            background: remove-ta.has-hover ? FadeTheme.danger : transparent;
+                            remove-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.remove-from-group(root.kebab-group, root.kebab-app);
+                                    root.kebab-group = -1;
+                                    root.kebab-app = -1;
+                                }
+                            }
+                            Text {
+                                text: "Remove from group";
+                                color: remove-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                font-size: 13px;
+                                horizontal-alignment: left;
+                                vertical-alignment: center;
+                                x: 10px;
+                            }
+                        }
                     }
                 }
             }
