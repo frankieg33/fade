@@ -504,6 +504,111 @@ fn setup_gui_callbacks(
     let weak = window.as_weak();
     let snap = snapshot_buffer.clone();
     let search = search_state.clone();
+    window.on_create_group(move || {
+        if let Ok(mut c) = cfg.write() {
+            let base = "New Group";
+            let mut n = 1;
+            let mut name = base.to_string();
+            while c.bucket.iter().any(|b| b.name == name) {
+                n += 1;
+                name = format!("{} {}", base, n);
+            }
+            c.bucket.push(config::Bucket {
+                name,
+                processes: Vec::new(),
+                timeout_mins: 15,
+                action: Action::Minimize,
+                enabled: false,
+                expanded: true,
+                icon: None,
+            });
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_delete_group(move |idx| {
+        if let Ok(mut c) = cfg.write() {
+            let i = idx as usize;
+            if i < c.bucket.len() {
+                c.bucket.remove(i);
+                let _ = c.save();
+                do_refresh_all(&weak, &c, &snap, &search);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_move_to_new_group(move |from_g, app_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let from = from_g as usize;
+            let a = app_idx as usize;
+            if from >= c.bucket.len() || a >= c.bucket[from].processes.len() { return; }
+            let process = c.bucket[from].processes.remove(a);
+            let base = "New Group";
+            let mut n = 1;
+            let mut name = base.to_string();
+            while c.bucket.iter().any(|b| b.name == name) {
+                n += 1;
+                name = format!("{} {}", base, n);
+            }
+            c.bucket.push(config::Bucket {
+                name,
+                processes: vec![process],
+                timeout_mins: 15,
+                action: Action::Minimize,
+                enabled: false,
+                expanded: true,
+                icon: None,
+            });
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_assign_to_new_group(move |u_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let unassigned_processes: Vec<String> = c.app_rule.iter()
+                .filter(|r| !process_in_any_bucket(&c, &r.process))
+                .map(|r| r.process.clone())
+                .collect();
+            let Some(proc) = unassigned_processes.get(u_idx as usize).cloned() else { return; };
+            let base = "New Group";
+            let mut n = 1;
+            let mut name = base.to_string();
+            while c.bucket.iter().any(|b| b.name == name) {
+                n += 1;
+                name = format!("{} {}", base, n);
+            }
+            c.bucket.push(config::Bucket {
+                name,
+                processes: vec![proc],
+                timeout_mins: 15,
+                action: Action::Minimize,
+                enabled: false,
+                expanded: true,
+                icon: None,
+            });
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
     window.on_rename_group(move |idx, new_name| {
         let trimmed = new_name.trim().to_string();
         if trimmed.is_empty() { return; }
