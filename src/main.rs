@@ -385,13 +385,14 @@ fn refresh_active_windows(
     }
 }
 
-fn format_open_duration(secs: u64) -> String {
-    if secs < 60 { format!("{}s", secs) }
-    else if secs < 3600 { format!("{}m", secs / 60) }
+fn format_idle_duration(secs: u64) -> String {
+    if secs < 10 { "active now".to_string() }
+    else if secs < 60 { format!("{}s ago", secs) }
+    else if secs < 3600 { format!("{}m ago", secs / 60) }
     else {
         let h = secs / 3600;
         let m = (secs % 3600) / 60;
-        if m == 0 { format!("{}h", h) } else { format!("{}h {}m", h, m) }
+        if m == 0 { format!("{}h ago", h) } else { format!("{}h {}m ago", h, m) }
     }
 }
 
@@ -410,7 +411,7 @@ fn refresh_current_apps(
             .map(|s| CurrentAppModel {
                 icon: config.icon_for_app(&s.process).into(),
                 process: s.process.clone().into(),
-                open_str: format_open_duration(s.open_secs).into(),
+                idle_str: format_idle_duration(s.idle_secs).into(),
                 managed: config.resolve_process(&s.process).is_some(),
             })
             .collect();

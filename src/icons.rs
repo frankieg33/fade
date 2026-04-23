@@ -58,7 +58,7 @@ pub fn bucket_icon(name: &str) -> &'static str {
         "communication" => "\u{F0BE8}", // nf-md-chat
         "media" => "\u{F04C5}",       // nf-md-music
         "development" => "\u{F0A1E}", // nf-md-microsoft_visual_studio_code
-        "gaming" => "\u{F04A5}",      // nf-md-steam (gamepad would be F0E52)
+        "gaming" => "\u{F0E52}",      // nf-md-gamepad-variant
         _ => "\u{F0493}",             // nf-md-widgets
     }
 }
