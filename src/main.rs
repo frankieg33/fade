@@ -555,8 +555,59 @@ fn setup_gui_callbacks(
             let g = g_idx as usize;
             let a = app_idx as usize;
             if g >= c.bucket.len() || a >= c.bucket[g].processes.len() { return; }
+            let proc = c.bucket[g].processes[a].clone();
+            let bucket_timeout = c.bucket[g].timeout_mins;
+            let bucket_action = c.bucket[g].action.clone();
+            let bucket_enabled = c.bucket[g].enabled;
             c.bucket[g].processes.remove(a);
+            // Ensure an AppRule exists so the app lands in Ungrouped (not nowhere).
+            if !c.app_rule.iter().any(|r| r.process.eq_ignore_ascii_case(&proc)) {
+                c.app_rule.push(config::AppRule {
+                    process: proc,
+                    timeout_mins: bucket_timeout,
+                    action: bucket_action,
+                    enabled: bucket_enabled,
+                    icon: None,
+                    customized: false,
+                });
+            }
             let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_delete_app_from_group(move |g_idx, app_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = app_idx as usize;
+            if g >= c.bucket.len() || a >= c.bucket[g].processes.len() { return; }
+            let proc = c.bucket[g].processes.remove(a);
+            // Also purge any standalone AppRule for this process.
+            c.app_rule.retain(|r| !r.process.eq_ignore_ascii_case(&proc));
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_add_to_group(move |g_idx, process| {
+        let name = process.trim().to_string();
+        if name.is_empty() { return; }
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            if g >= c.bucket.len() { return; }
+            let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&name));
+            if !already {
+                c.bucket[g].processes.push(name);
+                let _ = c.save();
+            }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });

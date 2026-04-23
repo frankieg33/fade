@@ -124,6 +124,8 @@ export component SettingsWindow inherits Window {
     callback icon-search-changed(string /* query */);
     callback move-app(int /* from group */, int /* app idx */, int /* to group */);
     callback remove-from-group(int /* group idx */, int /* app idx */);
+    callback delete-app-from-group(int /* group idx */, int /* app idx */);
+    callback add-to-group(int /* group idx */, string /* process */);
     callback assign-to-group(int /* unassigned idx */, int /* to group */);
 
     // App-in-group callbacks
@@ -209,7 +211,7 @@ export component SettingsWindow inherits Window {
                     }
                 }
 
-                // Nav: Applications & Rules
+                // Nav: Rules
                 Rectangle {
                     height: 36px;
                     border-radius: FadeTheme.radius;
@@ -222,44 +224,16 @@ export component SettingsWindow inherits Window {
                         padding-left: 12px;
                         spacing: 8px;
                         Text {
-                            text: "\u{F0493}";
+                            text: "\u{F0485}";
                             font-family: "Symbols Nerd Font Mono";
                             font-size: 14px;
                             color: root.current-page == 0 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
                             vertical-alignment: center;
                         }
                         Text {
-                            text: "Applications & Rules";
+                            text: "Rules";
                             font-size: 13px;
                             color: root.current-page == 0 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
-                            vertical-alignment: center;
-                        }
-                    }
-                }
-
-                // Nav: General Settings
-                Rectangle {
-                    height: 36px;
-                    border-radius: FadeTheme.radius;
-                    background: root.current-page == 1 ? FadeTheme.sidebar-active : nav1-ta.has-hover ? FadeTheme.surface-hover : transparent;
-                    nav1-ta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.current-page = 1; }
-                    }
-                    HorizontalBox {
-                        padding-left: 12px;
-                        spacing: 8px;
-                        Text {
-                            text: "\u{F0493}";
-                            font-family: "Symbols Nerd Font Mono";
-                            font-size: 14px;
-                            color: root.current-page == 1 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: "General Settings";
-                            font-size: 13px;
-                            color: root.current-page == 1 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
                             vertical-alignment: center;
                         }
                     }
@@ -293,8 +267,36 @@ export component SettingsWindow inherits Window {
                     }
                 }
 
-                // Spacer
+                // Spacer pushes Settings to the bottom
                 Rectangle { vertical-stretch: 1; }
+
+                // Nav: Settings (bottom)
+                Rectangle {
+                    height: 36px;
+                    border-radius: FadeTheme.radius;
+                    background: root.current-page == 1 ? FadeTheme.sidebar-active : nav1-ta.has-hover ? FadeTheme.surface-hover : transparent;
+                    nav1-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.current-page = 1; }
+                    }
+                    HorizontalBox {
+                        padding-left: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "\u{F0493}";
+                            font-family: "Symbols Nerd Font Mono";
+                            font-size: 14px;
+                            color: root.current-page == 1 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "Settings";
+                            font-size: 13px;
+                            color: root.current-page == 1 ? FadeTheme.sidebar-active-text : FadeTheme.sidebar-text;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
             }
         }
 
@@ -516,7 +518,7 @@ export component SettingsWindow inherits Window {
                                                 font-weight: root.confirming-delete-group == g-idx ? 600 : 400;
                                                 color: root.confirming-delete-group == g-idx
                                                     ? FadeTheme.bg
-                                                    : delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
+                                                    : delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
                                             }
@@ -534,23 +536,45 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
 
-                                // "+ Add app to this group" link
+                                // Inline "Add app to this group" input
                                 if group.expanded: Rectangle {
-                                    height: 28px;
+                                    height: 36px;
                                     HorizontalBox {
                                         padding-left: 16px;
-                                        spacing: 4px;
-                                        add-to-grp-ta := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.drawer-open = true;
+                                        padding-right: 8px;
+                                        spacing: 6px;
+                                        add-input := LineEdit {
+                                            horizontal-stretch: 1;
+                                            height: 28px;
+                                            font-size: 12px;
+                                            placeholder-text: "Add process name (e.g. notepad.exe) to this group";
+                                            accepted(val) => {
+                                                root.add-to-group(g-idx, val);
+                                                add-input.text = "";
                                             }
                                         }
-                                        Text {
-                                            text: "+ Add app to this group";
-                                            color: add-to-grp-ta.has-hover ? FadeTheme.accent : FadeTheme.text-dim;
-                                            font-size: 11px;
-                                            vertical-alignment: center;
+                                        Rectangle {
+                                            width: 28px;
+                                            height: 28px;
+                                            border-radius: 4px;
+                                            background: add-grp-btn-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
+                                            border-width: 1px;
+                                            border-color: FadeTheme.border;
+                                            add-grp-btn-ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.add-to-group(g-idx, add-input.text);
+                                                    add-input.text = "";
+                                                }
+                                            }
+                                            Text {
+                                                text: "+";
+                                                font-size: 16px;
+                                                font-weight: 700;
+                                                color: add-grp-btn-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
                                         }
                                     }
                                 }
@@ -764,17 +788,18 @@ export component SettingsWindow inherits Window {
                                             Text {
                                                 text: urule.icon;
                                                 font-family: "Symbols Nerd Font Mono";
-                                                font-size: 13px;
+                                                font-size: 16px;
                                                 color: FadeTheme.accent;
                                                 vertical-alignment: center;
-                                                width: 18px;
+                                                width: 22px;
                                             }
                                             Text {
                                                 text: urule.process;
                                                 color: FadeTheme.text;
-                                                font-size: 12px;
+                                                font-size: 13px;
                                                 vertical-alignment: center;
-                                                width: 130px;
+                                                min-width: 140px;
+                                                horizontal-stretch: 1;
                                                 overflow: elide;
                                             }
                                             Text {
@@ -935,7 +960,7 @@ export component SettingsWindow inherits Window {
                 spacing: 16px;
 
                 Text {
-                    text: "General Settings";
+                    text: "Settings";
                     color: FadeTheme.text;
                     font-size: 18px;
                     font-weight: 700;
@@ -1337,6 +1362,29 @@ export component SettingsWindow inherits Window {
                                 text: "Move to Ungrouped";
                                 color: remove-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
                                 font-size: 13px;
+                                horizontal-alignment: left;
+                                vertical-alignment: center;
+                                x: 10px;
+                            }
+                        }
+
+                        Rectangle {
+                            height: 30px;
+                            border-radius: 4px;
+                            background: del-app-ta.has-hover ? FadeTheme.danger : transparent;
+                            del-app-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.delete-app-from-group(root.kebab-group, root.kebab-app);
+                                    root.kebab-group = -1;
+                                    root.kebab-app = -1;
+                                }
+                            }
+                            Text {
+                                text: "Delete this app";
+                                color: del-app-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
+                                font-size: 13px;
+                                font-weight: 600;
                                 horizontal-alignment: left;
                                 vertical-alignment: center;
                                 x: 10px;
