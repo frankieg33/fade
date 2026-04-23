@@ -25,6 +25,8 @@ pub struct ActiveWindowSnapshot {
     pub title: String,
     pub idle_secs: u64,
     /// Seconds since Fade first observed this process running.
+    /// Kept for potential future display; current UI shows idle/last-active instead.
+    #[allow(dead_code)]
     pub open_secs: u64,
 }
 
