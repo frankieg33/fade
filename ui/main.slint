@@ -54,6 +54,14 @@ export struct ActivityLogModel {
     title: string,
 }
 
+// Currently-open app shown at top of Activity page.
+export struct CurrentAppModel {
+    icon: string,
+    process: string,
+    open_str: string,    // e.g. "1h 23m", "45s"
+    managed: bool,
+}
+
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
@@ -68,6 +76,7 @@ export component SettingsWindow inherits Window {
     in property <[UnassignedRuleModel]> unassigned-rules;
     in property <[ActiveProcessModel]> active-processes;
     in property <[ActivityLogModel]> activity-log;
+    in property <[CurrentAppModel]> current-apps;
     in property <int> managed-count: 0;
     in property <int> active-count: 0;
     in property <int> polling-interval-secs: 30;
@@ -126,6 +135,8 @@ export component SettingsWindow inherits Window {
     callback remove-from-group(int /* group idx */, int /* app idx */);
     callback delete-app-from-group(int /* group idx */, int /* app idx */);
     callback add-to-group(int /* group idx */, string /* process */);
+    callback move-app-up(int /* group idx */, int /* app idx */);
+    callback move-app-down(int /* group idx */, int /* app idx */);
     callback assign-to-group(int /* unassigned idx */, int /* to group */);
 
     // App-in-group callbacks
@@ -1135,6 +1146,90 @@ export component SettingsWindow inherits Window {
                     font-size: 12px;
                 }
 
+                // Currently-open apps section
+                Text {
+                    text: "Currently open (" + root.current-apps.length + ")";
+                    color: FadeTheme.text;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+                if root.current-apps.length == 0: Rectangle {
+                    height: 40px;
+                    border-radius: FadeTheme.radius;
+                    background: FadeTheme.card-bg;
+                    border-width: 1px;
+                    border-color: FadeTheme.border;
+                    Text {
+                        text: "No tracked windows right now.";
+                        color: FadeTheme.text-dim;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.current-apps.length > 0: Rectangle {
+                    max-height: 220px;
+                    border-radius: FadeTheme.radius;
+                    background: FadeTheme.card-bg;
+                    border-width: 1px;
+                    border-color: FadeTheme.border;
+                    ScrollView {
+                        VerticalBox {
+                            padding: 4px;
+                            spacing: 2px;
+                            for app in root.current-apps: Rectangle {
+                                height: 30px;
+                                border-radius: 4px;
+                                background: FadeTheme.surface;
+                                HorizontalBox {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 10px;
+                                    Text {
+                                        text: app.icon;
+                                        font-family: "Symbols Nerd Font Mono";
+                                        font-size: 14px;
+                                        color: app.managed ? FadeTheme.accent : FadeTheme.text-dim;
+                                        vertical-alignment: center;
+                                        width: 22px;
+                                    }
+                                    Text {
+                                        text: app.process;
+                                        color: FadeTheme.text;
+                                        font-size: 13px;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: app.managed ? "tracked" : "";
+                                        color: FadeTheme.accent;
+                                        font-size: 10px;
+                                        vertical-alignment: center;
+                                        width: 50px;
+                                        horizontal-alignment: right;
+                                    }
+                                    Text {
+                                        text: app.open_str;
+                                        color: FadeTheme.text-dim;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                        width: 80px;
+                                        horizontal-alignment: right;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Action log";
+                    color: FadeTheme.text;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+
                 if root.activity-log.length == 0: Rectangle {
                     height: 80px;
                     border-radius: FadeTheme.radius;
@@ -1239,6 +1334,55 @@ export component SettingsWindow inherits Window {
                     VerticalBox {
                         padding: 10px;
                         spacing: 4px;
+
+                        // Reorder row
+                        HorizontalBox {
+                            padding: 0px;
+                            spacing: 6px;
+                            height: 32px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+                                border-radius: 4px;
+                                background: up-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.border;
+                                up-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.move-app-up(root.kebab-group, root.kebab-app);
+                                    }
+                                }
+                                Text {
+                                    text: "▲ Move up";
+                                    color: up-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+                                border-radius: 4px;
+                                background: down-ta.has-hover ? FadeTheme.accent : FadeTheme.surface;
+                                border-width: 1px;
+                                border-color: FadeTheme.border;
+                                down-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.move-app-down(root.kebab-group, root.kebab-app);
+                                    }
+                                }
+                                Text {
+                                    text: "▼ Move down";
+                                    color: down-ta.has-hover ? FadeTheme.bg : FadeTheme.text;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
 
                         HorizontalBox {
                             padding: 0px;

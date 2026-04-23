@@ -24,6 +24,8 @@ pub struct ActiveWindowSnapshot {
     #[allow(dead_code)]
     pub title: String,
     pub idle_secs: u64,
+    /// Seconds since Fade first observed this process running.
+    pub open_secs: u64,
 }
 
 /// One entry in the activity log — an action Fade took.
@@ -56,6 +58,9 @@ pub struct Monitor<W: WindowApi> {
     /// Processes that had active rules last poll (lowercase).
     /// Used to detect newly managed processes and reset their idle clock.
     previously_managed: HashSet<String>,
+    /// First time each process (lowercase) was observed in a poll.
+    /// Cleared when the process stops appearing.
+    first_seen: HashMap<String, Instant>,
     /// Ring-buffer of recent actions for the Activity GUI tab.
     action_log: ActionLog,
 }
@@ -77,6 +82,7 @@ impl<W: WindowApi> Monitor<W> {
             current_windows: Vec::new(),
             snapshot_buffer,
             previously_managed: HashSet::new(),
+            first_seen: HashMap::new(),
             action_log,
         }
     }
@@ -152,6 +158,17 @@ impl<W: WindowApi> Monitor<W> {
 
         // 2. Enumerate visible windows and store for GUI snapshot
         self.current_windows = self.api.enumerate_visible_windows();
+
+        // 2a. Track first-seen time per process (for "how long open" display).
+        let current_procs_lower: HashSet<String> = self.current_windows
+            .iter()
+            .filter(|e| !filter::is_system_window(&e.info))
+            .map(|e| e.info.process_name.to_lowercase())
+            .collect();
+        for proc in &current_procs_lower {
+            self.first_seen.entry(proc.clone()).or_insert(now);
+        }
+        self.first_seen.retain(|k, _| current_procs_lower.contains(k));
 
         // 3-7. Check each window against rules and act
         // Collect actions first to avoid borrow conflicts.
@@ -299,10 +316,15 @@ impl<W: WindowApi> Monitor<W> {
                     .map(|t| now.duration_since(*t).as_secs())
                     .unwrap_or(0);
 
+                let open_secs = self.first_seen
+                    .get(&proc_lower)
+                    .map(|t| now.duration_since(*t).as_secs())
+                    .unwrap_or(0);
                 ActiveWindowSnapshot {
                     process: e.info.process_name.clone(),
                     title: e.info.title.clone(),
                     idle_secs,
+                    open_secs,
                 }
             })
             .collect();

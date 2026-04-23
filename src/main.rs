@@ -165,6 +165,7 @@ fn main() {
             if let Some(w) = gui_weak.upgrade() {
                 if let Ok(cfg) = config_for_gui.read() {
                     refresh_active_windows(&w, &cfg, &snapshot_for_gui);
+                    refresh_current_apps(&w, &cfg, &snapshot_for_gui);
                     refresh_activity_log(&w, &cfg, &log_for_gui);
                 }
             }
@@ -268,7 +269,9 @@ fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
             timeout_mins: bucket.timeout_mins as i32,
             action: bucket.action.as_str().into(),
             apps: std::rc::Rc::new(slint::VecModel::from(apps)).into(),
-            expanded: bucket.expanded,
+            // Force-expand while a search is active so matches are visible.
+            // Original collapse state is preserved in config and restored when search clears.
+            expanded: if q.is_empty() { bucket.expanded } else { true },
         })
     }).collect()
 }
@@ -378,6 +381,41 @@ fn refresh_active_windows(
     }
 }
 
+fn format_open_duration(secs: u64) -> String {
+    if secs < 60 { format!("{}s", secs) }
+    else if secs < 3600 { format!("{}m", secs / 60) }
+    else {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        if m == 0 { format!("{}h", h) } else { format!("{}h {}m", h, m) }
+    }
+}
+
+/// Refresh the "Currently open" list on the Activity page.
+fn refresh_current_apps(
+    window: &SettingsWindow,
+    config: &Config,
+    snapshot_buffer: &Arc<Mutex<Vec<ActiveWindowSnapshot>>>,
+) {
+    if let Ok(buf) = snapshot_buffer.lock() {
+        let mut seen = std::collections::HashSet::new();
+        let models: Vec<CurrentAppModel> = buf
+            .iter()
+            .filter(|s| !config.is_hidden(&s.process))
+            .filter(|s| seen.insert(s.process.to_lowercase()))
+            .map(|s| CurrentAppModel {
+                icon: config.icon_for_app(&s.process).into(),
+                process: s.process.clone().into(),
+                open_str: format_open_duration(s.open_secs).into(),
+                managed: config.resolve_process(&s.process).is_some(),
+            })
+            .collect();
+        window.set_current_apps(
+            std::rc::Rc::new(slint::VecModel::from(models)).into(),
+        );
+    }
+}
+
 /// Wire Slint callbacks to modify the shared config.
 /// Full refresh helper — reads current search state and repopulates all GUI properties.
 fn do_refresh_all(
@@ -390,6 +428,7 @@ fn do_refresh_all(
         let q = search_state.read().map(|s| s.clone()).unwrap_or_default();
         update_gui_from_config(&w, cfg, &q);
         refresh_active_windows(&w, cfg, snap);
+        refresh_current_apps(&w, cfg, snap);
     }
 }
 
@@ -588,6 +627,36 @@ fn setup_gui_callbacks(
             let proc = c.bucket[g].processes.remove(a);
             // Also purge any standalone AppRule for this process.
             c.app_rule.retain(|r| !r.process.eq_ignore_ascii_case(&proc));
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_move_app_up(move |g_idx, app_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = app_idx as usize;
+            if g >= c.bucket.len() || a == 0 || a >= c.bucket[g].processes.len() { return; }
+            c.bucket[g].processes.swap(a, a - 1);
+            let _ = c.save();
+            do_refresh_all(&weak, &c, &snap, &search);
+        }
+    });
+
+    let cfg = config.clone();
+    let weak = window.as_weak();
+    let snap = snapshot_buffer.clone();
+    let search = search_state.clone();
+    window.on_move_app_down(move |g_idx, app_idx| {
+        if let Ok(mut c) = cfg.write() {
+            let g = g_idx as usize;
+            let a = app_idx as usize;
+            if g >= c.bucket.len() || a + 1 >= c.bucket[g].processes.len() { return; }
+            c.bucket[g].processes.swap(a, a + 1);
             let _ = c.save();
             do_refresh_all(&weak, &c, &snap, &search);
         }
