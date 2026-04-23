@@ -58,9 +58,13 @@ pub struct Monitor<W: WindowApi> {
     /// Processes that had active rules last poll (lowercase).
     /// Used to detect newly managed processes and reset their idle clock.
     previously_managed: HashSet<String>,
-    /// First time each process (lowercase) was observed in a poll.
-    /// Cleared when the process stops appearing.
-    first_seen: HashMap<String, Instant>,
+    /// First time a (process_name_lower, pid) pair was observed. Cleared when the
+    /// PID stops appearing in polls. Used as a fallback when process_start_time
+    /// isn't available (access denied, protected process, etc).
+    first_seen: HashMap<(String, u32), Instant>,
+    /// Cached process creation time per PID from Win32 GetProcessTimes.
+    /// None = query was attempted and failed (don't retry every poll).
+    process_start_cache: HashMap<u32, Option<std::time::SystemTime>>,
     /// Ring-buffer of recent actions for the Activity GUI tab.
     action_log: ActionLog,
 }
@@ -83,6 +87,7 @@ impl<W: WindowApi> Monitor<W> {
             snapshot_buffer,
             previously_managed: HashSet::new(),
             first_seen: HashMap::new(),
+            process_start_cache: HashMap::new(),
             action_log,
         }
     }
@@ -159,16 +164,25 @@ impl<W: WindowApi> Monitor<W> {
         // 2. Enumerate visible windows and store for GUI snapshot
         self.current_windows = self.api.enumerate_visible_windows();
 
-        // 2a. Track first-seen time per process (for "how long open" display).
-        let current_procs_lower: HashSet<String> = self.current_windows
+        // 2a. Track first-seen per (process, pid) and cache GetProcessTimes result.
+        // first_seen is the fallback when process_start_time is unavailable.
+        let current_keys: HashSet<(String, u32)> = self.current_windows
             .iter()
             .filter(|e| !filter::is_system_window(&e.info))
-            .map(|e| e.info.process_name.to_lowercase())
+            .map(|e| (e.info.process_name.to_lowercase(), e.pid))
             .collect();
-        for proc in &current_procs_lower {
-            self.first_seen.entry(proc.clone()).or_insert(now);
+        for key in &current_keys {
+            self.first_seen.entry(key.clone()).or_insert(now);
         }
-        self.first_seen.retain(|k, _| current_procs_lower.contains(k));
+        self.first_seen.retain(|k, _| current_keys.contains(k));
+
+        let current_pids: HashSet<u32> = current_keys.iter().map(|(_, p)| *p).collect();
+        for pid in &current_pids {
+            self.process_start_cache
+                .entry(*pid)
+                .or_insert_with(|| self.api.process_start_time(*pid));
+        }
+        self.process_start_cache.retain(|pid, _| current_pids.contains(pid));
 
         // 3-7. Check each window against rules and act
         // Collect actions first to avoid borrow conflicts.
@@ -316,10 +330,16 @@ impl<W: WindowApi> Monitor<W> {
                     .map(|t| now.duration_since(*t).as_secs())
                     .unwrap_or(0);
 
-                let open_secs = self.first_seen
-                    .get(&proc_lower)
-                    .map(|t| now.duration_since(*t).as_secs())
-                    .unwrap_or(0);
+                let open_secs = match self.process_start_cache.get(&e.pid).and_then(|o| o.as_ref()) {
+                    Some(start) => std::time::SystemTime::now()
+                        .duration_since(*start)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                    None => self.first_seen
+                        .get(&(proc_lower.clone(), e.pid))
+                        .map(|t| now.duration_since(*t).as_secs())
+                        .unwrap_or(0),
+                };
                 ActiveWindowSnapshot {
                     process: e.info.process_name.clone(),
                     title: e.info.title.clone(),
@@ -384,6 +404,7 @@ mod tests {
     fn make_entry(hwnd: isize, process: &str, title: &str) -> WindowEntry {
         WindowEntry {
             hwnd,
+            pid: hwnd as u32,
             info: WindowInfo {
                 process_name: process.into(),
                 title: title.into(),
@@ -650,6 +671,7 @@ mod tests {
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![WindowEntry {
             hwnd: 1,
+            pid: 1,
             info: WindowInfo {
                 process_name: "dwm.exe".into(),
                 title: "Desktop Window Manager".into(),
