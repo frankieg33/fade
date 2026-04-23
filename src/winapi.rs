@@ -25,12 +25,17 @@ pub trait WindowApi: Send + Sync {
 
     /// Check if a window still exists.
     fn is_window_valid(&self, hwnd: isize) -> bool;
+
+    /// Get the creation time of a process, or None if unavailable
+    /// (access denied, process exited, protected process, etc).
+    fn process_start_time(&self, pid: u32) -> Option<std::time::SystemTime>;
 }
 
 /// Descriptor pairing a WindowInfo with its HWND for action dispatch.
 #[derive(Debug, Clone)]
 pub struct WindowEntry {
     pub hwnd: isize,
+    pub pid: u32,
     pub info: WindowInfo,
 }
 
@@ -158,6 +163,30 @@ mod win32_impl {
         fn is_window_valid(&self, hwnd: isize) -> bool {
             unsafe { IsWindow(HWND(hwnd as *mut _)).as_bool() }
         }
+
+        fn process_start_time(&self, pid: u32) -> Option<std::time::SystemTime> {
+            use windows::Win32::Foundation::{CloseHandle, FILETIME};
+            use windows::Win32::System::Threading::GetProcessTimes;
+            unsafe {
+                let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+                let mut creation = FILETIME::default();
+                let mut exit = FILETIME::default();
+                let mut kernel = FILETIME::default();
+                let mut user = FILETIME::default();
+                let result = GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
+                let _ = CloseHandle(handle);
+                result.ok()?;
+                // FILETIME is 100-ns ticks since 1601-01-01 UTC.
+                // UNIX epoch (1970-01-01) is 11644473600 seconds later.
+                let ticks = ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64);
+                const EPOCH_DIFF_100NS: u64 = 11_644_473_600 * 10_000_000;
+                if ticks < EPOCH_DIFF_100NS { return None; }
+                let unix_100ns = ticks - EPOCH_DIFF_100NS;
+                let secs = unix_100ns / 10_000_000;
+                let nanos = ((unix_100ns % 10_000_000) * 100) as u32;
+                Some(std::time::UNIX_EPOCH + std::time::Duration::new(secs, nanos))
+            }
+        }
     }
 
     struct EnumContext {
@@ -220,6 +249,7 @@ mod win32_impl {
 
         ctx.results.push(WindowEntry {
             hwnd: hwnd.0 as isize,
+            pid,
             info,
         });
 
@@ -358,6 +388,9 @@ impl WindowApi for Win32Api {
     fn is_window_valid(&self, _hwnd: isize) -> bool {
         false
     }
+    fn process_start_time(&self, _pid: u32) -> Option<std::time::SystemTime> {
+        None
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -442,6 +475,10 @@ pub mod mock {
 
         fn is_window_valid(&self, hwnd: isize) -> bool {
             self.valid_hwnds.lock().unwrap().contains(&hwnd)
+        }
+
+        fn process_start_time(&self, _pid: u32) -> Option<std::time::SystemTime> {
+            None
         }
     }
 }
