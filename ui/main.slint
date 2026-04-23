@@ -538,8 +538,8 @@ export component SettingsWindow inherits Window {
                                             border-radius: 4px;
                                             background: root.confirming-delete-group == g-idx
                                                 ? FadeTheme.danger
-                                                : delete-grp-ta.has-hover ? FadeTheme.danger : transparent;
-                                            border-width: root.confirming-delete-group == g-idx ? 1px : 0px;
+                                                : delete-grp-ta.has-hover ? FadeTheme.danger : #ff555522;
+                                            border-width: 1px;
                                             border-color: FadeTheme.danger;
                                             delete-grp-ta := TouchArea {
                                                 mouse-cursor: pointer;
@@ -770,10 +770,12 @@ export component SettingsWindow inherits Window {
                                             }
                                             // Always-visible delete
                                             Rectangle {
-                                                width: 26px;
+                                                width: 28px;
                                                 height: 26px;
                                                 border-radius: 4px;
-                                                background: del-app-inline-ta.has-hover ? FadeTheme.danger : transparent;
+                                                background: del-app-inline-ta.has-hover ? FadeTheme.danger : #ff555522;
+                                                border-width: 1px;
+                                                border-color: FadeTheme.danger;
                                                 del-app-inline-ta := TouchArea {
                                                     mouse-cursor: pointer;
                                                     clicked => {
@@ -782,7 +784,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                                 Text {
                                                     text: "✕";
-                                                    font-size: 14px;
+                                                    font-size: 16px;
                                                     font-weight: 700;
                                                     color: del-app-inline-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
                                                     horizontal-alignment: center;
@@ -906,18 +908,21 @@ export component SettingsWindow inherits Window {
                                             }
                                             // Remove button
                                             Rectangle {
-                                                width: 22px;
-                                                height: 22px;
+                                                width: 28px;
+                                                height: 26px;
                                                 border-radius: 4px;
-                                                background: u-rm-ta.has-hover ? FadeTheme.danger : transparent;
+                                                background: u-rm-ta.has-hover ? FadeTheme.danger : #ff555522;
+                                                border-width: 1px;
+                                                border-color: FadeTheme.danger;
                                                 u-rm-ta := TouchArea {
                                                     mouse-cursor: pointer;
                                                     clicked => { root.remove-unassigned(u-idx); }
                                                 }
                                                 Text {
                                                     text: "✕";
-                                                    color: u-rm-ta.has-hover ? FadeTheme.bg : FadeTheme.text-dim;
-                                                    font-size: 11px;
+                                                    color: u-rm-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
+                                                    font-size: 16px;
+                                                    font-weight: 700;
                                                     horizontal-alignment: center;
                                                     vertical-alignment: center;
                                                 }
