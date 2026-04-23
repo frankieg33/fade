@@ -1351,6 +1351,8 @@ export component SettingsWindow inherits Window {
                                     mouse-cursor: pointer;
                                     clicked => {
                                         root.move-app-up(root.kebab-group, root.kebab-app);
+                                        root.kebab-group = -1;
+                                        root.kebab-app = -1;
                                     }
                                 }
                                 Text {
@@ -1372,6 +1374,8 @@ export component SettingsWindow inherits Window {
                                     mouse-cursor: pointer;
                                     clicked => {
                                         root.move-app-down(root.kebab-group, root.kebab-app);
+                                        root.kebab-group = -1;
+                                        root.kebab-app = -1;
                                     }
                                 }
                                 Text {
