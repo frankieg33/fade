@@ -477,22 +477,25 @@ export component SettingsWindow inherits Window {
                                                 vertical-alignment: center;
                                             }
                                         }
-                                        // Group timeout
-                                        Text {
-                                            text: Math.round(grp-slider.value) * 5 + " min";
-                                            color: FadeTheme.text;
-                                            font-size: 12px;
-                                            width: 48px;
-                                            horizontal-alignment: right;
-                                            vertical-alignment: center;
-                                        }
-                                        grp-slider := Slider {
-                                            width: 100px;
-                                            minimum: 1;
-                                            maximum: 24;
-                                            value: Math.ceil(group.timeout-mins / 5);
-                                            changed(val) => {
-                                                root.update-group-timeout(g-idx, Math.round(val) * 5);
+                                        // Group timeout — label stacked above slider to save width
+                                        Rectangle {
+                                            width: 110px;
+                                            VerticalLayout {
+                                                spacing: 2px;
+                                                Text {
+                                                    text: Math.round(grp-slider.value) * 5 + " min";
+                                                    color: FadeTheme.text;
+                                                    font-size: 11px;
+                                                    horizontal-alignment: center;
+                                                }
+                                                grp-slider := Slider {
+                                                    minimum: 1;
+                                                    maximum: 24;
+                                                    value: Math.ceil(group.timeout-mins / 5);
+                                                    changed(val) => {
+                                                        root.update-group-timeout(g-idx, Math.round(val) * 5);
+                                                    }
+                                                }
                                             }
                                         }
                                         ComboBox {
@@ -523,10 +526,9 @@ export component SettingsWindow inherits Window {
                                                 }
                                             }
                                             Text {
-                                                text: root.confirming-delete-group == g-idx ? "Delete?" : "\u{F0450}";
-                                                font-family: root.confirming-delete-group == g-idx ? "" : "Symbols Nerd Font Mono";
-                                                font-size: root.confirming-delete-group == g-idx ? 11px : 16px;
-                                                font-weight: root.confirming-delete-group == g-idx ? 600 : 400;
+                                                text: root.confirming-delete-group == g-idx ? "Delete?" : "✕";
+                                                font-size: root.confirming-delete-group == g-idx ? 11px : 18px;
+                                                font-weight: root.confirming-delete-group == g-idx ? 600 : 700;
                                                 color: root.confirming-delete-group == g-idx
                                                     ? FadeTheme.bg
                                                     : delete-grp-ta.has-hover ? FadeTheme.bg : FadeTheme.danger;
@@ -647,35 +649,34 @@ export component SettingsWindow inherits Window {
                                             }
                                             Rectangle { horizontal-stretch: 1; }
 
-                                            // Inline custom controls — only when customized
-                                            if app.customized: HorizontalBox {
-                                                padding: 0px;
-                                                spacing: 8px;
-                                                Text {
-                                                    text: Math.round(app-slider.value) * 5 + " min";
-                                                    color: FadeTheme.text;
-                                                    font-size: 13px;
-                                                    width: 56px;
-                                                    horizontal-alignment: right;
-                                                    vertical-alignment: center;
-                                                }
-                                                app-slider := Slider {
-                                                    width: 140px;
-                                                    height: 24px;
-                                                    minimum: 1;
-                                                    maximum: 24;
-                                                    value: Math.ceil(app.timeout-mins / 5);
-                                                    changed(val) => {
-                                                        root.update-app-timeout(g-idx, a-idx, Math.round(val) * 5);
+                                            // Inline custom controls — only when customized.
+                                            // Label stacked above slider to save horizontal space.
+                                            if app.customized: Rectangle {
+                                                width: 110px;
+                                                VerticalLayout {
+                                                    spacing: 2px;
+                                                    Text {
+                                                        text: Math.round(app-slider.value) * 5 + " min";
+                                                        color: FadeTheme.text;
+                                                        font-size: 11px;
+                                                        horizontal-alignment: center;
+                                                    }
+                                                    app-slider := Slider {
+                                                        minimum: 1;
+                                                        maximum: 24;
+                                                        value: Math.ceil(app.timeout-mins / 5);
+                                                        changed(val) => {
+                                                            root.update-app-timeout(g-idx, a-idx, Math.round(val) * 5);
+                                                        }
                                                     }
                                                 }
-                                                ComboBox {
-                                                    width: 110px;
-                                                    height: 26px;
-                                                    model: ["minimize", "close"];
-                                                    current-value: app.action;
-                                                    selected(val) => { root.update-app-action(g-idx, a-idx, val); }
-                                                }
+                                            }
+                                            if app.customized: ComboBox {
+                                                width: 95px;
+                                                height: 26px;
+                                                model: ["minimize", "close"];
+                                                current-value: app.action;
+                                                selected(val) => { root.update-app-action(g-idx, a-idx, val); }
                                             }
 
                                             // Customize / Reset button
