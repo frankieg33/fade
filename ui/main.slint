@@ -62,6 +62,33 @@ export struct CurrentAppModel {
     managed: bool,
 }
 
+// Visible-when-unchecked checkbox (the std-widgets CheckBox was too faint on dark bg).
+component FadeCheck inherits Rectangle {
+    in-out property <bool> checked: false;
+    callback toggled();
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border-width: 2px;
+    border-color: root.checked ? FadeTheme.accent : FadeTheme.text-dim;
+    background: root.checked ? FadeTheme.accent : (ta.has-hover ? FadeTheme.surface-hover : transparent);
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+    if root.checked: Text {
+        text: "✓";
+        color: FadeTheme.bg;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
@@ -411,7 +438,7 @@ export component SettingsWindow inherits Window {
                                         padding-right: 12px;
                                         spacing: 8px;
 
-                                        CheckBox {
+                                        FadeCheck {
                                             checked: group.enabled;
                                             toggled => { root.toggle-group(g-idx, self.checked); }
                                         }
@@ -611,7 +638,7 @@ export component SettingsWindow inherits Window {
                                             padding-right: 8px;
                                             spacing: 8px;
 
-                                            CheckBox {
+                                            FadeCheck {
                                                 checked: app.enabled;
                                                 toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
                                             }
@@ -814,7 +841,7 @@ export component SettingsWindow inherits Window {
                                             padding-right: 8px;
                                             spacing: 6px;
 
-                                            CheckBox {
+                                            FadeCheck {
                                                 checked: urule.enabled;
                                                 toggled => { root.toggle-unassigned(u-idx, self.checked); }
                                             }
@@ -1021,7 +1048,7 @@ export component SettingsWindow inherits Window {
                 HorizontalBox {
                     spacing: FadeTheme.spacing;
                     Text { text: "Start with Windows:"; color: FadeTheme.text; vertical-alignment: center; width: 150px; }
-                    CheckBox {
+                    FadeCheck {
                         checked: root.auto-start;
                         toggled => { root.set-auto-start(self.checked); }
                     }
