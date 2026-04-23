@@ -197,6 +197,10 @@ fn main() {
         monitor.run(monitor_stop);
     });
 
+    // Show the settings window on launch (user opt-in to close-to-tray behavior).
+    window.show().ok();
+    window_visible.store(true, Ordering::Relaxed);
+
     // Run Slint event loop (blocks until quit)
     // Don't quit when last window is hidden
     let _ = slint::run_event_loop_until_quit();
