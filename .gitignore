@@ -2,3 +2,4 @@
 .worktrees/
 fade.toml
 *.toml.tmp
+.claude/
