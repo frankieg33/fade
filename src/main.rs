@@ -168,6 +168,10 @@ fn main() {
                     refresh_current_apps(&w, &cfg, &snapshot_for_gui);
                     refresh_activity_log(&w, &cfg, &log_for_gui);
                 }
+                // Force a full repaint even if no model property changed — otherwise
+                // the Slint/winit back-buffer can go stale on Windows after long idle
+                // periods, leaving panels that only repaint on hover.
+                w.window().request_redraw();
             }
         },
     );
