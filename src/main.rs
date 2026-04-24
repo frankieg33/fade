@@ -410,7 +410,7 @@ fn refresh_current_apps(
             .filter(|s| seen.insert(s.process.to_lowercase()))
             .map(|s| CurrentAppModel {
                 icon: config.icon_for_app(&s.process).into(),
-                process: s.process.clone().into(),
+                process_name: s.process.clone().into(),
                 idle_str: format_idle_duration(s.idle_secs).into(),
                 managed: config.resolve_process(&s.process).is_some(),
             })

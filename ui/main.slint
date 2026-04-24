@@ -57,7 +57,7 @@ export struct ActivityLogModel {
 // Currently-open app shown at top of Activity page.
 export struct CurrentAppModel {
     icon: string,
-    process: string,
+    process_name: string,
     idle_str: string,    // e.g. "active now", "3m ago"
     managed: bool,
 }
@@ -124,9 +124,9 @@ component FadeDeleteButton inherits Rectangle {
 export component SettingsWindow inherits Window {
     title: "Fade — Managed Applications";
     icon: @image-url("Fade Icon.png");
-    preferred-width: 1060px;
+    preferred-width: 880px;
     preferred-height: 640px;
-    min-width: 960px;
+    min-width: 820px;
     min-height: 400px;
     background: FadeTheme.bg;
 
@@ -491,9 +491,12 @@ export component SettingsWindow inherits Window {
                                         padding-right: 12px;
                                         spacing: 8px;
 
-                                        FadeCheck {
-                                            checked: group.enabled;
-                                            toggled => { root.toggle-group(g-idx, self.checked); }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            FadeCheck {
+                                                checked: group.enabled;
+                                                toggled => { root.toggle-group(g-idx, self.checked); }
+                                            }
                                         }
                                         Rectangle {
                                             width: 28px;
@@ -693,9 +696,12 @@ export component SettingsWindow inherits Window {
                                             padding-right: 8px;
                                             spacing: 8px;
 
-                                            FadeCheck {
-                                                checked: app.enabled;
-                                                toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
+                                            VerticalLayout {
+                                                alignment: center;
+                                                FadeCheck {
+                                                    checked: app.enabled;
+                                                    toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
+                                                }
                                             }
                                             Rectangle {
                                                 width: 28px;
@@ -896,9 +902,12 @@ export component SettingsWindow inherits Window {
                                             padding-right: 8px;
                                             spacing: 8px;
 
-                                            FadeCheck {
-                                                checked: urule.enabled;
-                                                toggled => { root.toggle-unassigned(u-idx, self.checked); }
+                                            VerticalLayout {
+                                                alignment: center;
+                                                FadeCheck {
+                                                    checked: urule.enabled;
+                                                    toggled => { root.toggle-unassigned(u-idx, self.checked); }
+                                                }
                                             }
                                             Rectangle {
                                                 width: 28px;
@@ -1297,43 +1306,42 @@ export component SettingsWindow inherits Window {
                                 height: 30px;
                                 border-radius: 4px;
                                 background: FadeTheme.surface;
-                                HorizontalBox {
-                                    padding-left: 10px;
-                                    padding-right: 10px;
-                                    spacing: 10px;
-                                    Text {
-                                        text: app.icon;
-                                        font-family: "Symbols Nerd Font Mono";
-                                        font-size: 14px;
-                                        color: app.managed ? FadeTheme.accent : FadeTheme.text-dim;
-                                        vertical-alignment: center;
-                                        width: 22px;
-                                    }
-                                    Text {
-                                        text: app.process;
-                                        color: FadeTheme.text;
-                                        font-size: 13px;
-                                        vertical-alignment: center;
-                                        min-width: 180px;
-                                        horizontal-stretch: 1;
-                                        overflow: elide;
-                                    }
-                                    Text {
-                                        text: app.managed ? "tracked" : "";
-                                        color: FadeTheme.accent;
-                                        font-size: 10px;
-                                        vertical-alignment: center;
-                                        width: 50px;
-                                        horizontal-alignment: right;
-                                    }
-                                    Text {
-                                        text: app.idle_str;
-                                        color: FadeTheme.text-dim;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                        width: 110px;
-                                        horizontal-alignment: right;
-                                    }
+                                Text {
+                                    x: 10px;
+                                    y: (parent.height - self.height) / 2;
+                                    text: app.icon;
+                                    font-family: "Symbols Nerd Font Mono";
+                                    font-size: 14px;
+                                    color: app.managed ? FadeTheme.accent : FadeTheme.text-dim;
+                                    width: 22px;
+                                    horizontal-alignment: center;
+                                }
+                                Text {
+                                    x: 42px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: parent.width - 42px - 180px;
+                                    text: app.process_name;
+                                    color: FadeTheme.text;
+                                    font-size: 13px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    x: parent.width - 170px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 60px;
+                                    text: app.managed ? "tracked" : "";
+                                    color: FadeTheme.accent;
+                                    font-size: 10px;
+                                    horizontal-alignment: right;
+                                }
+                                Text {
+                                    x: parent.width - 100px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 90px;
+                                    text: app.idle_str;
+                                    color: FadeTheme.text-dim;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
                                 }
                             }
                         }
