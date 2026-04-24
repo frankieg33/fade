@@ -186,6 +186,19 @@ impl<W: WindowApi> Monitor<W> {
         }
         self.process_start_cache.retain(|pid, _| current_pids.contains(pid));
 
+        // 2b. Prune foreground_timestamps to bound memory growth.
+        // Retain entries only for processes that are currently visible or the current
+        // foreground. A process that disappears and reappears loses its prior timestamp
+        // (re-seeded on next foreground switch), which is acceptable — idle tracking
+        // restarts from the new sighting.
+        let current_procs: HashSet<String> = current_keys.iter().map(|(p, _)| p.clone()).collect();
+        let fg_keep = foreground.as_deref().map(|s| s.to_lowercase());
+        if let Ok(mut ts) = self.foreground_timestamps.lock() {
+            ts.retain(|proc, _| {
+                current_procs.contains(proc) || fg_keep.as_deref() == Some(proc.as_str())
+            });
+        }
+
         // 3-7. Check each window against rules and act
         // Collect actions first to avoid borrow conflicts.
         let fg_lower = foreground.as_deref().map(|s| s.to_lowercase());
@@ -370,7 +383,8 @@ impl<W: WindowApi> Monitor<W> {
                 .config
                 .read()
                 .map(|c| c.general.polling_interval_secs)
-                .unwrap_or(30);
+                .unwrap_or(30)
+                .max(1);
 
             // Sleep in short increments so we can check should_stop
             let total = Duration::from_secs(interval);
