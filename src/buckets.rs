@@ -1,5 +1,5 @@
-/// Bucket utilities — reserved for future bucket-level operations
-/// (e.g., filtering to installed processes, bucket-level statistics).
+//! Bucket utilities — reserved for future bucket-level operations
+//! (e.g., filtering to installed processes, bucket-level statistics).
 
 #[cfg(test)]
 mod tests {

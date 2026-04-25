@@ -3,15 +3,11 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Action {
+    #[default]
     Minimize,
     Close,
-}
-
-impl Default for Action {
-    fn default() -> Self {
-        Action::Minimize
-    }
 }
 
 impl Action {
@@ -104,9 +100,7 @@ fn default_true() -> bool {
 /// True if either (a) the user explicitly clicked Edit, or (b) the rule's
 /// timeout/action diverges from the group's current values.
 pub fn app_is_customized(bucket: &Bucket, rule: &AppRule) -> bool {
-    rule.customized
-        || rule.timeout_mins != bucket.timeout_mins
-        || rule.action != bucket.action
+    rule.customized || rule.timeout_mins != bucket.timeout_mins || rule.action != bucket.action
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -252,7 +246,10 @@ impl Config {
                 }
             },
             Err(_) => {
-                log::info!("No config file found, creating defaults at {}", path.display());
+                log::info!(
+                    "No config file found, creating defaults at {}",
+                    path.display()
+                );
                 let config = Self::default_config();
                 if let Err(e) = config.save() {
                     log::error!("failed to write initial config: {}", e);
@@ -282,7 +279,8 @@ impl Config {
     /// Save config to the standard path.
     pub fn save(&self) -> Result<(), String> {
         let path = config_path();
-        let contents = toml::to_string_pretty(self).map_err(|e| format!("Serialize error: {}", e))?;
+        let contents =
+            toml::to_string_pretty(self).map_err(|e| format!("Serialize error: {}", e))?;
 
         // Write to temp file, then rename for atomic save
         let tmp_path = path.with_extension("toml.tmp");
@@ -409,7 +407,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
-            icon: None,
+                icon: None,
             }],
             app_rule: vec![AppRule {
                 process: "chrome.exe".into(),
@@ -437,7 +435,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
-            icon: None,
+                icon: None,
             }],
             app_rule: vec![],
         };
@@ -482,7 +480,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: false,
                 expanded: true,
-            icon: None,
+                icon: None,
             }],
             app_rule: vec![],
         };
@@ -575,7 +573,10 @@ enabled = true
 
     #[test]
     fn test_action_str_roundtrip() {
-        assert_eq!(Action::from_str(Action::Minimize.as_str()), Action::Minimize);
+        assert_eq!(
+            Action::from_str(Action::Minimize.as_str()),
+            Action::Minimize
+        );
         assert_eq!(Action::from_str(Action::Close.as_str()), Action::Close);
         assert_eq!(Action::from_str("garbage"), Action::Minimize); // default fallback
     }
@@ -592,7 +593,10 @@ enabled = true
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.bucket.len(), 1);
-        assert!(config.bucket[0].expanded, "expanded should default to true for old configs");
+        assert!(
+            config.bucket[0].expanded,
+            "expanded should default to true for old configs"
+        );
     }
 
     #[test]
@@ -651,8 +655,8 @@ enabled = true
             action: Action::Minimize,
             enabled: true,
             icon: None,
-                customized: false,
-            };
+            customized: false,
+        };
         assert!(!app_is_customized(&bucket, &base_rule));
         // Icon-only diff: NOT customized
         let mut r = base_rule.clone();
@@ -674,15 +678,15 @@ enabled = true
         // No rule → falls back to catalog
         let fallback = config.icon_for_app("chrome.exe");
         assert_eq!(fallback, "googlechrome"); // chrome maps to brand slug now
-        // With rule override → uses override
+                                              // With rule override → uses override
         config.app_rule.push(AppRule {
             process: "chrome.exe".into(),
             timeout_mins: 15,
             action: Action::Minimize,
             enabled: true,
             icon: Some("XYZ".into()),
-                customized: false,
-            });
+            customized: false,
+        });
         assert_eq!(config.icon_for_app("chrome.exe"), "XYZ");
     }
 
@@ -701,7 +705,13 @@ enabled = true
         config.bucket[0].expanded = false;
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
-        assert!(!deserialized.bucket[0].expanded, "expanded=false should survive roundtrip");
-        assert!(deserialized.bucket[1].expanded, "other buckets should stay expanded");
+        assert!(
+            !deserialized.bucket[0].expanded,
+            "expanded=false should survive roundtrip"
+        );
+        assert!(
+            deserialized.bucket[1].expanded,
+            "other buckets should stay expanded"
+        );
     }
 }

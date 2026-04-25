@@ -2,7 +2,6 @@
 /// All unsafe Win32 calls are isolated in this module.
 ///
 /// A `WindowApi` trait abstracts these calls for testability.
-
 use crate::filter::WindowInfo;
 
 /// Abstraction over Win32 window operations, enabling mock implementations for tests.
@@ -57,11 +56,16 @@ impl Win32Api {
 #[cfg(target_os = "windows")]
 mod win32_impl {
     use super::*;
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE};
-    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
-    use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::PWSTR;
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::*;
 
     impl WindowApi for Win32Api {
         fn get_foreground_process(&self) -> Option<String> {
@@ -173,14 +177,18 @@ mod win32_impl {
                 let mut exit = FILETIME::default();
                 let mut kernel = FILETIME::default();
                 let mut user = FILETIME::default();
-                let result = GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
+                let result =
+                    GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
                 let _ = CloseHandle(handle);
                 result.ok()?;
                 // FILETIME is 100-ns ticks since 1601-01-01 UTC.
                 // UNIX epoch (1970-01-01) is 11644473600 seconds later.
-                let ticks = ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64);
+                let ticks =
+                    ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64);
                 const EPOCH_DIFF_100NS: u64 = 11_644_473_600 * 10_000_000;
-                if ticks < EPOCH_DIFF_100NS { return None; }
+                if ticks < EPOCH_DIFF_100NS {
+                    return None;
+                }
                 let unix_100ns = ticks - EPOCH_DIFF_100NS;
                 let secs = unix_100ns / 10_000_000;
                 let nanos = ((unix_100ns % 10_000_000) * 100) as u32;
@@ -263,7 +271,9 @@ mod win32_impl {
         let mut buf = [0u16; 1024];
         let mut size = buf.len() as u32;
         let pwstr = PWSTR(buf.as_mut_ptr());
-        let result = if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), pwstr, &mut size).is_ok() {
+        let result = if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), pwstr, &mut size)
+            .is_ok()
+        {
             let full_path = String::from_utf16_lossy(&buf[..size as usize]);
             full_path.rsplit('\\').next().map(|s| s.to_string())
         } else {
@@ -303,7 +313,7 @@ pub fn install_foreground_hook(
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
     use windows::Win32::UI::WindowsAndMessaging::{
-        EVENT_SYSTEM_FOREGROUND, GetWindowThreadProcessId, WINEVENT_OUTOFCONTEXT,
+        GetWindowThreadProcessId, EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT,
     };
 
     // Store the shared timestamps in a global so the callback can access them.

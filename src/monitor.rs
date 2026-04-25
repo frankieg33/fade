@@ -1,7 +1,6 @@
 /// Core idle-detection polling loop.
 /// Tracks which processes were last in the foreground and triggers
 /// minimize/close actions when idle timeouts are exceeded.
-
 use crate::config::{Action, Config};
 use crate::filter;
 use crate::winapi::{WindowApi, WindowEntry};
@@ -168,7 +167,8 @@ impl<W: WindowApi> Monitor<W> {
 
         // 2a. Track first-seen per (process, pid) and cache GetProcessTimes result.
         // first_seen is the fallback when process_start_time is unavailable.
-        let current_keys: HashSet<(String, u32)> = self.current_windows
+        let current_keys: HashSet<(String, u32)> = self
+            .current_windows
             .iter()
             .filter(|e| !filter::is_system_window(&e.info))
             .map(|e| (e.info.process_name.to_lowercase(), e.pid))
@@ -184,7 +184,8 @@ impl<W: WindowApi> Monitor<W> {
                 .entry(*pid)
                 .or_insert_with(|| self.api.process_start_time(*pid));
         }
-        self.process_start_cache.retain(|pid, _| current_pids.contains(pid));
+        self.process_start_cache
+            .retain(|pid, _| current_pids.contains(pid));
 
         // 2b. Prune foreground_timestamps to bound memory growth.
         // Retain entries only for processes that are currently visible or the current
@@ -264,13 +265,21 @@ impl<W: WindowApi> Monitor<W> {
 
             // Skip fullscreen windows
             if self.api.is_fullscreen(entry.hwnd) {
-                log::debug!("Skipping fullscreen window: {} ({})", entry.info.process_name, entry.info.title);
+                log::debug!(
+                    "Skipping fullscreen window: {} ({})",
+                    entry.info.process_name,
+                    entry.info.title
+                );
                 continue;
             }
 
             // Double-check window is still valid
             if !self.api.is_window_valid(entry.hwnd) {
-                log::debug!("Window vanished: {} ({})", entry.info.process_name, entry.info.title);
+                log::debug!(
+                    "Window vanished: {} ({})",
+                    entry.info.process_name,
+                    entry.info.title
+                );
                 continue;
             }
 
@@ -304,12 +313,22 @@ impl<W: WindowApi> Monitor<W> {
         for action in actions {
             match action.action {
                 Action::Minimize => {
-                    log::info!("Minimizing: {} ({}) — idle {:.0}s", action.process, action.title, action.idle_secs);
+                    log::info!(
+                        "Minimizing: {} ({}) — idle {:.0}s",
+                        action.process,
+                        action.title,
+                        action.idle_secs
+                    );
                     self.api.minimize_window(action.hwnd);
                     self.record_action(&action.process, &action.title, Action::Minimize);
                 }
                 Action::Close => {
-                    log::info!("Closing: {} ({}) — idle {:.0}s", action.process, action.title, action.idle_secs);
+                    log::info!(
+                        "Closing: {} ({}) — idle {:.0}s",
+                        action.process,
+                        action.title,
+                        action.idle_secs
+                    );
                     self.api.close_window(action.hwnd);
                     self.record_action(&action.process, &action.title, Action::Close);
                 }
@@ -345,12 +364,17 @@ impl<W: WindowApi> Monitor<W> {
                     .map(|t| now.duration_since(*t).as_secs())
                     .unwrap_or(0);
 
-                let open_secs = match self.process_start_cache.get(&e.pid).and_then(|o| o.as_ref()) {
+                let open_secs = match self
+                    .process_start_cache
+                    .get(&e.pid)
+                    .and_then(|o| o.as_ref())
+                {
                     Some(start) => std::time::SystemTime::now()
                         .duration_since(*start)
                         .map(|d| d.as_secs())
                         .unwrap_or(0),
-                    None => self.first_seen
+                    None => self
+                        .first_seen
                         .get(&(proc_lower.clone(), e.pid))
                         .map(|t| now.duration_since(*t).as_secs())
                         .unwrap_or(0),
@@ -434,7 +458,13 @@ mod tests {
 
     fn setup(
         config: Config,
-    ) -> (Monitor<MockWindowApi>, MockWindowApi, Arc<RwLock<Config>>, Arc<AtomicBool>, ForegroundTimestamps) {
+    ) -> (
+        Monitor<MockWindowApi>,
+        MockWindowApi,
+        Arc<RwLock<Config>>,
+        Arc<AtomicBool>,
+        ForegroundTimestamps,
+    ) {
         let mock = MockWindowApi::new();
         let config = Arc::new(RwLock::new(config));
         let paused = Arc::new(AtomicBool::new(false));
@@ -501,9 +531,10 @@ mod tests {
         // With timeout_mins=0, it should be acted on
         mock.set_foreground(Some("other.exe"));
         // Need to backdate the timestamp
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(1));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(1),
+        );
         monitor.poll();
 
         // The monitor uses enumerate_with_hwnds which creates synthetic HWNDs (0-indexed)
@@ -531,9 +562,10 @@ mod tests {
         monitor.poll();
 
         mock.set_foreground(Some("other.exe"));
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(1));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(1),
+        );
         monitor.poll();
 
         assert!(!mock.get_closed().is_empty());
@@ -546,9 +578,10 @@ mod tests {
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "unmanaged.exe", "Something")]);
-        timestamps
-            .lock().unwrap()
-            .insert("unmanaged.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        timestamps.lock().unwrap().insert(
+            "unmanaged.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
         monitor.poll();
 
         assert!(mock.get_minimized().is_empty());
@@ -574,9 +607,10 @@ mod tests {
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
         monitor.poll();
 
         assert!(mock.get_minimized().is_empty());
@@ -600,9 +634,10 @@ mod tests {
         // Chrome goes idle
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
-        timestamps
-            .lock().unwrap()
-            .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(30));
+        timestamps.lock().unwrap().insert(
+            "chrome.exe".to_string(),
+            Instant::now() - Duration::from_secs(30),
+        );
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // 30s < 60s timeout
 
@@ -632,9 +667,10 @@ mod tests {
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
         monitor.poll();
 
         assert!(mock.get_minimized().is_empty());
@@ -651,7 +687,7 @@ mod tests {
                 action: Action::Minimize,
                 enabled: true,
                 expanded: true,
-            icon: None,
+                icon: None,
             }],
         );
         let (mut monitor, mock, _, _, timestamps) = setup(config);
@@ -661,9 +697,10 @@ mod tests {
         monitor.poll();
 
         mock.set_foreground(Some("other.exe"));
-        timestamps
-            .lock().unwrap()
-            .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(1));
+        timestamps.lock().unwrap().insert(
+            "chrome.exe".to_string(),
+            Instant::now() - Duration::from_secs(1),
+        );
         monitor.poll();
 
         assert!(!mock.get_minimized().is_empty());
@@ -697,9 +734,10 @@ mod tests {
                 own_pid: false,
             },
         }]);
-        timestamps
-            .lock().unwrap()
-            .insert("dwm.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        timestamps.lock().unwrap().insert(
+            "dwm.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
         monitor.poll();
 
         assert!(mock.get_minimized().is_empty());
@@ -722,9 +760,10 @@ mod tests {
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(60));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(60),
+        );
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // 60s < 999min
 
@@ -787,14 +826,20 @@ mod tests {
         // Set different idle times
         {
             let mut ts = timestamps.lock().unwrap();
-            ts.insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(300));
-            ts.insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(60));
+            ts.insert(
+                "chrome.exe".to_string(),
+                Instant::now() - Duration::from_secs(300),
+            );
+            ts.insert(
+                "notepad.exe".to_string(),
+                Instant::now() - Duration::from_secs(60),
+            );
         }
 
         monitor.poll();
 
         let snapshot = monitor.get_active_windows_snapshot();
-        assert!(snapshot.len() >= 1);
+        assert!(!snapshot.is_empty());
         // First should be the longest idle
         if snapshot.len() >= 2 {
             assert!(snapshot[0].idle_secs >= snapshot[1].idle_secs);
@@ -821,9 +866,10 @@ mod tests {
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "chrome.exe", "Google")]);
-        foreground_timestamps
-            .lock().unwrap()
-            .insert("chrome.exe".to_string(), Instant::now() - Duration::from_secs(10));
+        foreground_timestamps.lock().unwrap().insert(
+            "chrome.exe".to_string(),
+            Instant::now() - Duration::from_secs(10),
+        );
         monitor.poll();
 
         let buf = snapshot_buffer.lock().unwrap();
@@ -866,9 +912,10 @@ mod tests {
         // notepad is open and was last in foreground a long time ago
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![make_entry(1, "notepad.exe", "Untitled")]);
-        timestamps
-            .lock().unwrap()
-            .insert("notepad.exe".to_string(), Instant::now() - Duration::from_secs(9999));
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
         monitor.poll();
         assert!(mock.get_minimized().is_empty()); // unmanaged, no action
 

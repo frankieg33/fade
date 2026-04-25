@@ -1,9 +1,9 @@
-/// Window filtering logic — determines which windows are "system" windows
-/// that should be auto-ignored vs. user application windows.
+//! Window filtering logic — determines which windows are "system" windows
+//! that should be auto-ignored vs. user application windows.
 
 /// Known system process names that should always be filtered out.
 const SYSTEM_PROCESSES: &[&str] = &[
-    "explorer.exe",          // desktop shell (not File Explorer windows — see below)
+    "explorer.exe", // desktop shell (not File Explorer windows — see below)
     "searchhost.exe",
     "startmenuexperiencehost.exe",
     "shellexperiencehost.exe",
@@ -24,7 +24,7 @@ const SYSTEM_PROCESSES: &[&str] = &[
     "svchost.exe",
     "smartscreen.exe",
     "securityhealthsystray.exe",
-    "windowsterminal.exe",   // usually desired — remove if users want to manage it
+    "windowsterminal.exe", // usually desired — remove if users want to manage it
 ];
 
 /// Window class names that indicate system/shell windows.
@@ -47,10 +47,10 @@ pub struct WindowInfo {
     pub process_name: String,
     pub title: String,
     pub class_name: String,
-    pub is_tool_window: bool,   // WS_EX_TOOLWINDOW style
+    pub is_tool_window: bool, // WS_EX_TOOLWINDOW style
     #[allow(dead_code)]
-    pub is_owned: bool,         // has an owner window
-    pub own_pid: bool,          // belongs to the fade process
+    pub is_owned: bool, // has an owner window
+    pub own_pid: bool,        // belongs to the fade process
 }
 
 /// Returns true if this window should be filtered out (is a system window).
@@ -163,7 +163,11 @@ mod tests {
 
     #[test]
     fn test_windowsterminal_filtered() {
-        let w = make_window("WindowsTerminal.exe", "Terminal", "CASCADIA_HOSTING_WINDOW_CLASS");
+        let w = make_window(
+            "WindowsTerminal.exe",
+            "Terminal",
+            "CASCADIA_HOSTING_WINDOW_CLASS",
+        );
         assert!(is_system_window(&w));
     }
 }

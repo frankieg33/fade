@@ -1,5 +1,4 @@
 /// Auto-start management — register/unregister fade to start with Windows.
-
 use auto_launch::AutoLaunch;
 
 pub fn set_auto_start(enabled: bool) -> Result<(), String> {
@@ -11,8 +10,10 @@ pub fn set_auto_start(enabled: bool) -> Result<(), String> {
     let auto = AutoLaunch::new("Fade", exe_str, &[] as &[&str]);
 
     if enabled {
-        auto.enable().map_err(|e| format!("Failed to enable auto-start: {}", e))
+        auto.enable()
+            .map_err(|e| format!("Failed to enable auto-start: {}", e))
     } else {
-        auto.disable().map_err(|e| format!("Failed to disable auto-start: {}", e))
+        auto.disable()
+            .map_err(|e| format!("Failed to disable auto-start: {}", e))
     }
 }

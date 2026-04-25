@@ -1,5 +1,5 @@
-/// System tray icon and context menu.
-/// Uses tray-icon + muda crates. Created on the main thread (same as Slint event loop).
+//! System tray icon and context menu.
+//! Uses tray-icon + muda crates. Created on the main thread (same as Slint event loop).
 
 /// Tray event types that main.rs cares about.
 #[allow(dead_code)]
@@ -19,14 +19,18 @@ pub struct TrayHandle {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use muda::{Menu, MenuItem, PredefinedMenuItem, CheckMenuItem, MenuEvent};
-    use tray_icon::{TrayIconBuilder, TrayIconEvent, Icon};
+    use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 
     pub const MENU_SETTINGS: &str = "settings";
     pub const MENU_PAUSE: &str = "pause";
     pub const MENU_QUIT: &str = "quit";
 
-    pub fn create_tray_icon(icon_rgba: Vec<u8>, width: u32, height: u32) -> Result<TrayHandle, String> {
+    pub fn create_tray_icon(
+        icon_rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> Result<TrayHandle, String> {
         let icon = Icon::from_rgba(icon_rgba, width, height)
             .map_err(|e| format!("Failed to create icon: {}", e))?;
 
@@ -36,11 +40,16 @@ mod platform {
         let pause = CheckMenuItem::with_id(MENU_PAUSE, "Paused", true, false, None);
         let quit = MenuItem::with_id(MENU_QUIT, "Quit Fade", true, None);
 
-        menu.append(&label).map_err(|e| format!("Menu error: {}", e))?;
-        menu.append(&PredefinedMenuItem::separator()).map_err(|e| format!("Menu error: {}", e))?;
-        menu.append(&pause).map_err(|e| format!("Menu error: {}", e))?;
-        menu.append(&PredefinedMenuItem::separator()).map_err(|e| format!("Menu error: {}", e))?;
-        menu.append(&quit).map_err(|e| format!("Menu error: {}", e))?;
+        menu.append(&label)
+            .map_err(|e| format!("Menu error: {}", e))?;
+        menu.append(&PredefinedMenuItem::separator())
+            .map_err(|e| format!("Menu error: {}", e))?;
+        menu.append(&pause)
+            .map_err(|e| format!("Menu error: {}", e))?;
+        menu.append(&PredefinedMenuItem::separator())
+            .map_err(|e| format!("Menu error: {}", e))?;
+        menu.append(&quit)
+            .map_err(|e| format!("Menu error: {}", e))?;
 
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
@@ -77,7 +86,11 @@ mod platform {
 mod platform {
     use super::*;
 
-    pub fn create_tray_icon(_icon_rgba: Vec<u8>, _width: u32, _height: u32) -> Result<TrayHandle, String> {
+    pub fn create_tray_icon(
+        _icon_rgba: Vec<u8>,
+        _width: u32,
+        _height: u32,
+    ) -> Result<TrayHandle, String> {
         Err("Tray icon not supported on this platform".into())
     }
 
@@ -116,7 +129,7 @@ fn generate_fallback_icon() -> (Vec<u8>, u32, u32) {
     let size: u32 = 32;
     let mut rgba = vec![0u8; (size * size * 4) as usize];
     for i in 0..(size * size) as usize {
-        rgba[i * 4] = 137;     // R — #89b4fa
+        rgba[i * 4] = 137; // R — #89b4fa
         rgba[i * 4 + 1] = 180; // G
         rgba[i * 4 + 2] = 250; // B
         rgba[i * 4 + 3] = 255; // A
