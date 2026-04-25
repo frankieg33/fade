@@ -4,53 +4,42 @@ Automatically minimizes or closes windows that have been idle too long. Set a ti
 
 ## Features
 
-- **Per-app rules** — set a timeout and action (minimize or close) for any process
-- **Buckets** — predefined groups (Browsing, Communication, Media, Development, Gaming) that manage multiple apps with one setting
-- **System tray** — runs silently in the background; double-click the tray icon or right-click for settings, pause, or quit
-- **Settings GUI** — manage rules, view active windows sorted by idle time, configure buckets and general settings
-- **Auto-start** — optionally start with Windows
+- **Per-app rules** — timeout and action (minimize or close) for any process
+- **Bucket groups** — predefined groups (Browsing, Communication, Media, Development, Gaming, Utilities) that manage multiple apps with one setting; app-specific rules override bucket rules
+- **System tray** — runs silently in the background; right-click for settings, pause, or quit
+- **Brand-accurate icons** — recognizes most common apps (Chrome, Firefox, Slack, VSCode, Steam, etc.) and falls back to themed glyphs for the rest
+- **Activity tab** — see what's currently being tracked and recent actions Fade has taken
+- **Auto-start** — optional launch with Windows
 - **Portable** — config file lives next to the executable, no installer required
-- **Instant transitions** — windows disappear immediately, no slow animations
 
-## Installation
+## Install
 
-Download the latest release, or build from source:
+1. Download the latest `fade-vX.Y.Z-windows-x86_64.zip` from [Releases](../../releases).
+2. Unzip somewhere stable — Fade stores its config (`fade.toml`) next to the executable.
+3. Run `fade.exe`. The settings window opens once on first launch; afterwards Fade lives in the system tray.
 
-```bash
-cargo build --release
-```
+## Using it
 
-The binary is at `target/release/fade.exe`. Copy it wherever you like — Fade stores its config (`fade.toml`) next to the executable.
+- **Right-click the tray icon** for show settings / pause / quit.
+- **Closing the settings window hides to the tray** — it doesn't quit. Use tray → Quit to exit.
 
-## Usage
+### Rules tab
 
-Run `fade.exe`. It starts minimized to the system tray.
+Edit per-app and per-bucket rules. Each row has a timeout slider, a minimize/close action, and an enable toggle. Buckets can be expanded to manage their member apps individually. Add new processes with the inline `Add process name` field.
 
-- **Double-click** the tray icon to open Settings
-- **Right-click** the tray icon for a menu: Settings, Pause/Resume, Quit
+### Activity tab
 
-### Rules Tab
+Shows currently-running tracked apps (with idle time) and a rolling log of the last 100 actions Fade has taken.
 
-Add processes (e.g., `chrome.exe`) with a timeout in minutes and an action (minimize or close). When a managed window has been in the background longer than its timeout, Fade acts on it.
+### Settings tab
 
-### Buckets Tab
-
-Enable a predefined group to manage all its apps at once. For example, enabling "Browsing" manages Chrome, Firefox, Edge, Brave, Opera, Vivaldi, and Arc with a single timeout.
-
-App-specific rules take priority over bucket membership.
-
-### Active Windows Tab
-
-Shows all currently open windows sorted by idle time. Useful for seeing what Fade is tracking.
-
-### General Tab
-
-- **Polling interval** — how often Fade checks for idle windows (15, 30, or 60 seconds)
-- **Start with Windows** — register Fade to launch at login
+Polling interval, start-with-Windows toggle, window-position memory.
 
 ## Configuration
 
-Fade stores its settings in `fade.toml` next to the executable. You can edit it directly:
+`fade.toml` lives next to the executable. Out-of-range values get clamped on load (polling interval `[1, 3600]` s, timeouts `[1, 10080]` minutes / 1 week).
+
+If the config file is corrupted, it's renamed to `fade.toml.corrupt-<timestamp>` and Fade falls back to defaults — your hand-edits aren't lost.
 
 ```toml
 [general]
@@ -72,19 +61,32 @@ action = "minimize"
 enabled = true
 ```
 
-## Building from Source
+## Build from source
 
-Requirements:
-- Rust toolchain (stable)
-- Windows SDK (for full functionality; builds on Linux/macOS with stubs for development)
+Cross-compile from Linux/WSL via the MinGW toolchain:
 
 ```bash
-cargo build --release    # optimized build (~small binary with LTO + strip)
-cargo test               # run tests (works on any platform)
+sudo apt install mingw-w64 pkg-config libfontconfig1-dev
+rustup target add x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+```
+
+You can also build natively on Windows with the MSVC toolchain (`cargo build --release`).
+
+Tests run on any platform — Win32 calls are isolated behind a `WindowApi` trait with a mock for cross-platform testing:
+
+```bash
+cargo test
 ```
 
 ## How It Works
 
-Fade polls the system every N seconds. For each visible window, it checks how long ago that window's process was last in the foreground. If the idle time exceeds the configured timeout and the window isn't fullscreen, Fade minimizes or closes it. The foreground window is never touched.
+Fade polls the system every N seconds (default 30). For each visible window, it checks how long since the owning process was last in the foreground. If the idle time exceeds the configured timeout and the window isn't fullscreen or filtered, Fade minimizes or closes it. The current foreground window is never touched. System windows (taskbar, desktop, DWM, etc.) are filtered out automatically.
 
-System windows (taskbar, desktop, DWM, etc.) are automatically filtered out.
+A Win32 `SetWinEventHook` keeps foreground timestamps current in real time, so newly-active windows reset their timers immediately rather than waiting for the next poll.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Brand icons under [assets/icons/](assets/icons/) are bundled from [simpleicons.org](https://simpleicons.org/) (CC0) and [Tabler Icons](https://github.com/tabler/tabler-icons) (MIT). See [assets/icons/LICENSES.md](assets/icons/LICENSES.md) for full attribution.

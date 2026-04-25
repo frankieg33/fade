@@ -1,8 +1,11 @@
 [package]
 name = "fade"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Idle window manager — automatically minimizes or closes inactive windows"
+license = "MIT"
+repository = "https://github.com/frankieg33/fade"
+readme = "README.md"
 build = "build.rs"
 
 [dependencies]

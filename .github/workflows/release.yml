@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64 + fontconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 pkg-config libfontconfig1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ runner.os }}
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Stage release artifacts
+        run: |
+          STAGE="fade-${GITHUB_REF_NAME}-windows-x86_64"
+          mkdir -p "$STAGE"
+          cp target/x86_64-pc-windows-gnu/release/fade.exe "$STAGE/"
+          cp README.md "$STAGE/" 2>/dev/null || true
+          cp -r assets "$STAGE/"
+          zip -r "${STAGE}.zip" "$STAGE"
+          echo "ASSET=${STAGE}.zip" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          generate_release_notes: true

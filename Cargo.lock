@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "fade"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "auto-launch",
  "env_logger",
