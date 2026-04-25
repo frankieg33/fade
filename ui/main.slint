@@ -91,6 +91,12 @@ component FadeCheck inherits Rectangle {
 
 // Renders a brand-name SVG (arc, vivaldi, slack, etc.) when `icon` matches a known
 // slug, otherwise falls back to rendering `icon` as a Nerd Font glyph.
+//
+// MAINTENANCE: To add a new brand SVG, you must update THREE places:
+//   1. drop the SVG file into assets/icons/<slug>.svg
+//   2. add `if root.icon == "<slug>": Image { source: @image-url("..."); ... }` below
+//   3. add `|| root.icon == "<slug>"` to the `is-brand` property
+// Forgetting (3) makes the glyph fallback render on top of the SVG.
 component BrandIcon inherits Rectangle {
     in property <string> icon;
     in property <length> size: 18px;
