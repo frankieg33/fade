@@ -389,7 +389,7 @@ impl<W: WindowApi> Monitor<W> {
             .collect();
 
         // Sort by idle time descending (longest idle first)
-        snapshots.sort_by(|a, b| b.idle_secs.cmp(&a.idle_secs));
+        snapshots.sort_by_key(|s| std::cmp::Reverse(s.idle_secs));
 
         snapshots
     }
