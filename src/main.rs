@@ -78,7 +78,7 @@ fn main() {
                 c.general.window_height = Some(size.height);
                 c.general.window_x = Some(pos.x);
                 c.general.window_y = Some(pos.y);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             }
             w.hide().ok();
         }
@@ -461,7 +461,7 @@ fn setup_gui_callbacks(
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].enabled = enabled;
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -473,7 +473,7 @@ fn setup_gui_callbacks(
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].timeout_mins = mins as u64;
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             }
         }
     });
@@ -484,7 +484,7 @@ fn setup_gui_callbacks(
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].action = Action::from_str(&action);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             }
         }
     });
@@ -498,7 +498,7 @@ fn setup_gui_callbacks(
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].expanded = !c.bucket[idx].expanded;
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -535,7 +535,7 @@ fn setup_gui_callbacks(
             let idx = g_idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].icon = Some(glyph.to_string());
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -567,7 +567,7 @@ fn setup_gui_callbacks(
                 customized: false,
             });
             }
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -591,7 +591,7 @@ fn setup_gui_callbacks(
             if !already_there {
                 c.bucket[to].processes.push(process);
             }
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -621,7 +621,7 @@ fn setup_gui_callbacks(
                     customized: false,
                 });
             }
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -638,7 +638,7 @@ fn setup_gui_callbacks(
             let proc = c.bucket[g].processes.remove(a);
             // Also purge any standalone AppRule for this process.
             c.app_rule.retain(|r| !r.process.eq_ignore_ascii_case(&proc));
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -653,7 +653,7 @@ fn setup_gui_callbacks(
             let a = app_idx as usize;
             if g >= c.bucket.len() || a == 0 || a >= c.bucket[g].processes.len() { return; }
             c.bucket[g].processes.swap(a, a - 1);
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -668,7 +668,7 @@ fn setup_gui_callbacks(
             let a = app_idx as usize;
             if g >= c.bucket.len() || a + 1 >= c.bucket[g].processes.len() { return; }
             c.bucket[g].processes.swap(a, a + 1);
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -686,7 +686,7 @@ fn setup_gui_callbacks(
             let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&name));
             if !already {
                 c.bucket[g].processes.push(name);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             }
             do_refresh_all(&weak, &c, &snap, &search);
         }
@@ -714,7 +714,7 @@ fn setup_gui_callbacks(
                 expanded: true,
                 icon: None,
             });
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -728,7 +728,7 @@ fn setup_gui_callbacks(
             let i = idx as usize;
             if i < c.bucket.len() {
                 c.bucket.remove(i);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -760,7 +760,7 @@ fn setup_gui_callbacks(
                 expanded: true,
                 icon: None,
             });
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -792,7 +792,7 @@ fn setup_gui_callbacks(
                 expanded: true,
                 icon: None,
             });
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
     });
@@ -808,7 +808,7 @@ fn setup_gui_callbacks(
             let idx = idx as usize;
             if idx < c.bucket.len() {
                 c.bucket[idx].name = trimmed;
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -827,7 +827,7 @@ fn setup_gui_callbacks(
                 let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&process_str));
                 if !already {
                     c.bucket[g].processes.push(process_str);
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                     do_refresh_all(&weak, &c, &snap, &search);
                 }
             }
@@ -863,7 +863,7 @@ fn setup_gui_callbacks(
                         customized: true,
                     });
                 }
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -881,7 +881,7 @@ fn setup_gui_callbacks(
             if g < c.bucket.len() && a < c.bucket[g].processes.len() {
                 let process_lower = c.bucket[g].processes[a].to_lowercase();
                 c.app_rule.retain(|r| r.process.to_lowercase() != process_lower);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -896,7 +896,7 @@ fn setup_gui_callbacks(
                 let process_lower = c.bucket[g].processes[a].to_lowercase();
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
                     rule.timeout_mins = mins as u64;
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 }
             }
         }
@@ -911,7 +911,7 @@ fn setup_gui_callbacks(
                 let process_lower = c.bucket[g].processes[a].to_lowercase();
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
                     rule.action = Action::from_str(&action);
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 }
             }
         }
@@ -944,7 +944,7 @@ fn setup_gui_callbacks(
                 } else if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == process_lower) {
                     rule.enabled = enabled;
                 }
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -975,7 +975,7 @@ fn setup_gui_callbacks(
                     let already = c.bucket[g].processes.iter().any(|p| p.eq_ignore_ascii_case(&proc));
                     if !already {
                         c.bucket[g].processes.push(proc);
-                        let _ = c.save();
+                        if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                         do_refresh_all(&weak, &c, &snap, &search);
                     }
                 }
@@ -993,7 +993,7 @@ fn setup_gui_callbacks(
             if let Some(proc) = unassigned_processes.get(idx as usize) {
                 let proc = proc.clone();
                 c.app_rule.retain(|r| r.process.to_lowercase() != proc);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 do_refresh_all(&weak, &c, &snap, &search);
             }
         }
@@ -1012,7 +1012,7 @@ fn setup_gui_callbacks(
             if let Some(proc) = unassigned_processes.get(idx as usize) {
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
                     rule.enabled = enabled;
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                     do_refresh_all(&weak, &c, &snap, &search);
                 }
             }
@@ -1029,7 +1029,7 @@ fn setup_gui_callbacks(
             if let Some(proc) = unassigned_processes.get(idx as usize) {
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
                     rule.timeout_mins = mins as u64;
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 }
             }
         }
@@ -1045,7 +1045,7 @@ fn setup_gui_callbacks(
             if let Some(proc) = unassigned_processes.get(idx as usize) {
                 if let Some(rule) = c.app_rule.iter_mut().find(|r| r.process.to_lowercase() == *proc) {
                     rule.action = Action::from_str(&action);
-                    let _ = c.save();
+                    if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 }
             }
         }
@@ -1081,7 +1081,7 @@ fn setup_gui_callbacks(
                 icon: None,
                 customized: false,
             });
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
             w.set_drawer_status_kind(1);
             w.set_drawer_status_text(format!("Added: {}", process_str).into());
@@ -1123,7 +1123,7 @@ fn setup_gui_callbacks(
                 icon: None,
                 customized: false,
             });
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
             w.set_drawer_status_kind(1);
             w.set_drawer_status_text(format!("Added: {}", trimmed).into());
@@ -1136,7 +1136,7 @@ fn setup_gui_callbacks(
     window.on_set_polling_interval(move |secs| {
         if let Ok(mut c) = cfg.write() {
             c.general.polling_interval_secs = secs as u64;
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
         }
     });
 
@@ -1148,7 +1148,7 @@ fn setup_gui_callbacks(
         }
         if let Ok(mut c) = cfg.write() {
             c.general.auto_start = enabled;
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
         }
     });
 
@@ -1161,7 +1161,7 @@ fn setup_gui_callbacks(
             let process_str = process.to_string();
             if !c.general.hidden_processes.contains(&process_str) {
                 c.general.hidden_processes.push(process_str);
-                let _ = c.save();
+                if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
                 if let Some(w) = weak.upgrade() {
                     refresh_active_windows(&w, &c, &snap);
                 }
@@ -1189,7 +1189,7 @@ fn setup_gui_callbacks(
     window.on_restore_defaults(move || {
         if let Ok(mut c) = cfg.write() {
             *c = Config::default_config();
-            let _ = c.save();
+            if let Err(e) = c.save() { log::error!("config save failed: {}", e); }
             do_refresh_all(&weak, &c, &snap, &search);
         }
         log::info!("Config restored to defaults");

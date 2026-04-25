@@ -235,8 +235,9 @@ mod win32_impl {
         let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
 
         // Check if owned
-        let owner = GetWindow(hwnd, GW_OWNER);
-        let is_owned = owner.is_ok() && !owner.unwrap().0.is_null();
+        let is_owned = GetWindow(hwnd, GW_OWNER)
+            .map(|o| !o.0.is_null())
+            .unwrap_or(false);
 
         let info = WindowInfo {
             process_name,

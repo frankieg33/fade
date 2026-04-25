@@ -221,26 +221,61 @@ impl Config {
     }
 
     /// Load config from the standard path (next to exe).
-    /// Falls back to defaults if file is missing or corrupt.
+    /// Falls back to defaults if file is missing or corrupt. A corrupt config
+    /// is preserved as `<path>.corrupt-<unix_ts>` so the user can recover.
     pub fn load() -> Self {
         let path = config_path();
         match std::fs::read_to_string(&path) {
             Ok(contents) => match toml::from_str::<Config>(&contents) {
-                Ok(config) => {
+                Ok(mut config) => {
+                    config.clamp_ranges();
                     log::info!("Loaded config from {}", path.display());
                     config
                 }
                 Err(e) => {
-                    log::warn!("Config parse error ({}), using defaults: {}", path.display(), e);
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let backup = path.with_extension(format!("toml.corrupt-{}", ts));
+                    let backup_msg = match std::fs::rename(&path, &backup) {
+                        Ok(()) => format!("preserved as {}", backup.display()),
+                        Err(re) => format!("could not back up ({})", re),
+                    };
+                    log::error!(
+                        "Config parse error at {}; reverting to defaults — {}: {}",
+                        path.display(),
+                        backup_msg,
+                        e
+                    );
                     Self::default_config()
                 }
             },
             Err(_) => {
                 log::info!("No config file found, creating defaults at {}", path.display());
                 let config = Self::default_config();
-                let _ = config.save(); // best-effort save
+                if let Err(e) = config.save() {
+                    log::error!("failed to write initial config: {}", e);
+                }
                 config
             }
+        }
+    }
+
+    /// Clamp out-of-range values that may have been hand-edited or saved by an
+    /// older buggy build. Called after every successful deserialize.
+    fn clamp_ranges(&mut self) {
+        // Polling interval: at least 1s (lower would tight-loop the monitor),
+        // at most 1 hour (anything bigger means the user effectively disabled it).
+        self.general.polling_interval_secs = self.general.polling_interval_secs.clamp(1, 3600);
+        // Timeouts: 1 min to 7 days. Below 1 windows would minimize before the
+        // user blinked; above 7 days the rule is effectively disabled.
+        const MAX_TIMEOUT: u64 = 7 * 24 * 60;
+        for rule in &mut self.app_rule {
+            rule.timeout_mins = rule.timeout_mins.clamp(1, MAX_TIMEOUT);
+        }
+        for bucket in &mut self.bucket {
+            bucket.timeout_mins = bucket.timeout_mins.clamp(1, MAX_TIMEOUT);
         }
     }
 
