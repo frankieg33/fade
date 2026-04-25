@@ -11,19 +11,22 @@ Public domain dedication. No attribution required.
 - spotify.svg, vlcmediaplayer.svg, itunes.svg
 - intellijidea.svg, androidstudio.svg
 - steam.svg, epicgames.svg, gogdotcom.svg
+- anthropic.svg, cursor.svg, googlegemini.svg
 
 Source: https://simpleicons.org/
 
-## MIT — devicons / devicon
+## MIT — Tabler Icons
 
-Copyright (c) 2015 konpa et al.
-The Devicon project is licensed under the MIT License.
+Copyright (c) 2020-2024 Paweł Kuna. Licensed under the MIT License.
 
-- slack.svg, visualstudiocode.svg, visualstudio.svg, powershell.svg, windowsterminal.svg
+- slack.svg, visualstudiocode.svg, visualstudio.svg, powershell.svg
+- windowsterminal.svg, openai.svg
 
-Source: https://github.com/devicons/devicon
+Source: https://github.com/tabler/tabler-icons
 
 ```
+MIT License
+
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
 the Software without restriction, including without limitation the rights to

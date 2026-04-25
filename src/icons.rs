@@ -44,8 +44,10 @@ pub fn process_icon(process: &str) -> &'static str {
         "excel.exe" => "\u{F021F}",
         "powerpnt.exe" => "\u{F0227}",
         "outlook.exe" => "\u{F0D22}",
-        "codex.exe" => "\u{F018D}",
-        "antigravity.exe" => "\u{F0E52}",
+        "claude.exe" => "anthropic",
+        "codex.exe" => "openai",
+        "antigravity.exe" => "googlegemini",
+        "cursor.exe" => "cursor",
         // Fallback
         _ => "\u{F0485}",
     }
