@@ -89,6 +89,62 @@ component FadeCheck inherits Rectangle {
     }
 }
 
+// Renders a brand-name SVG (arc, vivaldi, slack, etc.) when `icon` matches a known
+// slug, otherwise falls back to rendering `icon` as a Nerd Font glyph.
+component BrandIcon inherits Rectangle {
+    in property <string> icon;
+    in property <length> size: 18px;
+    in property <color> tint: FadeTheme.text;
+
+    width: root.size;
+    height: root.size;
+
+    property <bool> is-brand:
+        root.icon == "arc" || root.icon == "vivaldi" || root.icon == "brave" ||
+        root.icon == "opera" || root.icon == "googlechrome" || root.icon == "firefox" ||
+        root.icon == "discord" || root.icon == "telegram" || root.icon == "signal" ||
+        root.icon == "whatsapp" || root.icon == "spotify" || root.icon == "vlcmediaplayer" ||
+        root.icon == "itunes" || root.icon == "intellijidea" || root.icon == "androidstudio" ||
+        root.icon == "steam" || root.icon == "epicgames" || root.icon == "gogdotcom" ||
+        root.icon == "slack" || root.icon == "visualstudiocode" || root.icon == "visualstudio" ||
+        root.icon == "powershell" || root.icon == "windowsterminal";
+
+    if root.icon == "arc": Image { source: @image-url("../assets/icons/arc.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "vivaldi": Image { source: @image-url("../assets/icons/vivaldi.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "brave": Image { source: @image-url("../assets/icons/brave.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "opera": Image { source: @image-url("../assets/icons/opera.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "googlechrome": Image { source: @image-url("../assets/icons/googlechrome.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "firefox": Image { source: @image-url("../assets/icons/firefox.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "discord": Image { source: @image-url("../assets/icons/discord.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "telegram": Image { source: @image-url("../assets/icons/telegram.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "signal": Image { source: @image-url("../assets/icons/signal.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "whatsapp": Image { source: @image-url("../assets/icons/whatsapp.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "spotify": Image { source: @image-url("../assets/icons/spotify.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "vlcmediaplayer": Image { source: @image-url("../assets/icons/vlcmediaplayer.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "itunes": Image { source: @image-url("../assets/icons/itunes.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "intellijidea": Image { source: @image-url("../assets/icons/intellijidea.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "androidstudio": Image { source: @image-url("../assets/icons/androidstudio.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "steam": Image { source: @image-url("../assets/icons/steam.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "epicgames": Image { source: @image-url("../assets/icons/epicgames.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "gogdotcom": Image { source: @image-url("../assets/icons/gogdotcom.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "slack": Image { source: @image-url("../assets/icons/slack.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "visualstudiocode": Image { source: @image-url("../assets/icons/visualstudiocode.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "visualstudio": Image { source: @image-url("../assets/icons/visualstudio.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "powershell": Image { source: @image-url("../assets/icons/powershell.svg"); width: root.size; height: root.size; image-fit: contain; }
+    if root.icon == "windowsterminal": Image { source: @image-url("../assets/icons/windowsterminal.svg"); width: root.size; height: root.size; image-fit: contain; }
+
+    if !root.is-brand: Text {
+        text: root.icon;
+        font-family: "Symbols Nerd Font Mono";
+        font-size: root.size;
+        color: root.tint;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: root.size;
+        height: root.size;
+    }
+}
+
 component FadeDeleteButton inherits Rectangle {
     in property <bool> confirming: false;
     in property <string> confirm-label: "Delete?";
@@ -719,13 +775,10 @@ export component SettingsWindow inherits Window {
                                                         root.icon-search-changed("");
                                                     }
                                                 }
-                                                Text {
-                                                    text: app.icon;
-                                                    font-family: "Symbols Nerd Font Mono";
-                                                    font-size: 16px;
-                                                    color: FadeTheme.accent;
-                                                    horizontal-alignment: center;
-                                                    vertical-alignment: center;
+                                                BrandIcon {
+                                                    icon: app.icon;
+                                                    size: 18px;
+                                                    tint: FadeTheme.accent;
                                                 }
                                             }
                                             Text {
@@ -914,13 +967,10 @@ export component SettingsWindow inherits Window {
                                                 height: 28px;
                                                 border-radius: 4px;
                                                 background: transparent;
-                                                Text {
-                                                    text: urule.icon;
-                                                    font-family: "Symbols Nerd Font Mono";
-                                                    font-size: 16px;
-                                                    color: FadeTheme.accent;
-                                                    horizontal-alignment: center;
-                                                    vertical-alignment: center;
+                                                BrandIcon {
+                                                    icon: urule.icon;
+                                                    size: 18px;
+                                                    tint: FadeTheme.accent;
                                                 }
                                             }
                                             Text {
@@ -1306,15 +1356,12 @@ export component SettingsWindow inherits Window {
                                 height: 30px;
                                 border-radius: 4px;
                                 background: FadeTheme.surface;
-                                Text {
+                                BrandIcon {
                                     x: 10px;
                                     y: (parent.height - self.height) / 2;
-                                    text: app.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
-                                    color: app.managed ? FadeTheme.accent : FadeTheme.text-dim;
-                                    width: 22px;
-                                    horizontal-alignment: center;
+                                    icon: app.icon;
+                                    size: 16px;
+                                    tint: app.managed ? FadeTheme.accent : FadeTheme.text-dim;
                                 }
                                 Text {
                                     x: 42px;
@@ -1384,13 +1431,10 @@ export component SettingsWindow inherits Window {
                                 padding-left: 10px;
                                 padding-right: 10px;
                                 spacing: 10px;
-                                Text {
-                                    text: entry.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
-                                    color: FadeTheme.accent;
-                                    vertical-alignment: center;
-                                    width: 22px;
+                                BrandIcon {
+                                    icon: entry.icon;
+                                    size: 16px;
+                                    tint: FadeTheme.accent;
                                 }
                                 Text {
                                     text: entry.process;
@@ -1570,13 +1614,10 @@ export component SettingsWindow inherits Window {
                                 padding-left: 8px;
                                 padding-right: 8px;
                                 spacing: 8px;
-                                Text {
-                                    text: dest.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
-                                    color: FadeTheme.accent;
-                                    vertical-alignment: center;
-                                    width: 20px;
+                                BrandIcon {
+                                    icon: dest.icon;
+                                    size: 16px;
+                                    tint: FadeTheme.accent;
                                 }
                                 Text {
                                     text: dest.name;
@@ -1726,13 +1767,10 @@ export component SettingsWindow inherits Window {
                                 padding-left: 8px;
                                 padding-right: 8px;
                                 spacing: 8px;
-                                Text {
-                                    text: dest.icon;
-                                    font-family: "Symbols Nerd Font Mono";
-                                    font-size: 14px;
-                                    color: FadeTheme.accent;
-                                    vertical-alignment: center;
-                                    width: 20px;
+                                BrandIcon {
+                                    icon: dest.icon;
+                                    size: 16px;
+                                    tint: FadeTheme.accent;
                                 }
                                 Text {
                                     text: dest.name;
@@ -1983,13 +2021,10 @@ export component SettingsWindow inherits Window {
                                     padding-left: 6px;
                                     padding-right: 6px;
                                     spacing: 8px;
-                                    Text {
-                                        text: proc.icon;
-                                        font-family: "Symbols Nerd Font Mono";
-                                        font-size: 14px;
-                                        color: FadeTheme.accent;
-                                        vertical-alignment: center;
-                                        width: 22px;
+                                    BrandIcon {
+                                        icon: proc.icon;
+                                        size: 16px;
+                                        tint: FadeTheme.accent;
                                     }
                                     Text {
                                         text: proc.process;

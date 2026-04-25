@@ -638,7 +638,7 @@ enabled = true
         let mut config = Config::default_config();
         // No rule → falls back to catalog
         let fallback = config.icon_for_app("chrome.exe");
-        assert_eq!(fallback, "\u{F02AD}"); // chrome glyph from icons.rs
+        assert_eq!(fallback, "googlechrome"); // chrome maps to brand slug now
         // With rule override → uses override
         config.app_rule.push(AppRule {
             process: "chrome.exe".into(),
