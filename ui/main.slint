@@ -218,6 +218,10 @@ export component SettingsWindow inherits Window {
     // Navigation state
     in-out property <int> current-page: 0; // 0 = Applications & Rules, 1 = General Settings, 2 = Activity
 
+    // Activity tab: user-resizable height of the "Currently open" section.
+    // The action log fills whatever's left below it.
+    in-out property <length> activity-current-height: 220px;
+
     // Search
     in-out property <string> search-text: "";
 
@@ -1371,7 +1375,7 @@ export component SettingsWindow inherits Window {
                     }
                 }
                 if root.current-apps.length > 0: Rectangle {
-                    max-height: 220px;
+                    height: root.activity-current-height;
                     border-radius: FadeTheme.radius;
                     background: FadeTheme.card-bg;
                     border-width: 1px;
@@ -1423,11 +1427,40 @@ export component SettingsWindow inherits Window {
                     }
                 }
 
+                // Draggable splitter between Currently open and Action log.
+                // Only meaningful when there's something to size against.
+                if root.current-apps.length > 0: Rectangle {
+                    height: 8px;
+                    background: transparent;
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        height: splitter-ta.has-hover || splitter-ta.pressed ? 3px : 1px;
+                        background: splitter-ta.pressed
+                            ? FadeTheme.accent
+                            : (splitter-ta.has-hover ? FadeTheme.text-dim : FadeTheme.border);
+                        animate height, background { duration: 80ms; }
+                    }
+                    splitter-ta := TouchArea {
+                        mouse-cursor: row-resize;
+                        property <length> press-height: 220px;
+                        pointer-event(e) => {
+                            if (e.kind == PointerEventKind.down) {
+                                self.press-height = root.activity-current-height;
+                            }
+                        }
+                        moved => {
+                            root.activity-current-height = Math.clamp(
+                                self.press-height + (self.mouse-y - self.pressed-y),
+                                80px, 800px);
+                        }
+                    }
+                }
+
                 Text {
                     text: "Action log";
-                    color: FadeTheme.text;
-                    font-size: 14px;
-                    font-weight: 600;
+                    color: FadeTheme.text-dim;
+                    font-size: 12px;
+                    font-weight: 500;
                 }
 
                 if root.activity-log.length == 0: Rectangle {

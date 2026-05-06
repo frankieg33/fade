@@ -42,7 +42,7 @@ pub struct ActionLogEntry {
 /// Shared ring-buffer of recent actions. Most-recent first.
 pub type ActionLog = Arc<Mutex<std::collections::VecDeque<ActionLogEntry>>>;
 
-const ACTION_LOG_CAPACITY: usize = 100;
+const ACTION_LOG_CAPACITY: usize = 500;
 
 /// The monitor that runs the polling loop.
 pub struct Monitor<W: WindowApi> {
