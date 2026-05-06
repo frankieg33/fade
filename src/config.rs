@@ -47,6 +47,9 @@ pub struct General {
     pub window_x: Option<i32>,
     #[serde(default)]
     pub window_y: Option<i32>,
+    /// Activity tab: persisted height (logical px) of the "Currently open" pane.
+    #[serde(default)]
+    pub activity_current_height: Option<f32>,
 }
 
 impl Default for General {
@@ -64,6 +67,7 @@ impl Default for General {
             window_height: None,
             window_x: None,
             window_y: None,
+            activity_current_height: None,
         }
     }
 }

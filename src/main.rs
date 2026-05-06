@@ -424,6 +424,9 @@ fn update_gui_from_config(window: &SettingsWindow, config: &Config, search: &str
     window.set_managed_count(count_managed(config));
     window.set_polling_interval_secs(config.general.polling_interval_secs as i32);
     window.set_auto_start(config.general.auto_start);
+    if let Some(h) = config.general.activity_current_height {
+        window.set_activity_current_height(h);
+    }
     window.set_version(env!("CARGO_PKG_VERSION").into());
 }
 
@@ -1408,6 +1411,16 @@ fn setup_gui_callbacks(
     window.on_set_polling_interval(move |secs| {
         if let Ok(mut c) = cfg.write() {
             c.general.polling_interval_secs = secs as u64;
+            if let Err(e) = c.save() {
+                log::error!("config save failed: {}", e);
+            }
+        }
+    });
+
+    let cfg = config.clone();
+    window.on_set_activity_current_height(move |h| {
+        if let Ok(mut c) = cfg.write() {
+            c.general.activity_current_height = Some(h);
             if let Err(e) = c.save() {
                 log::error!("config save failed: {}", e);
             }

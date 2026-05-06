@@ -294,6 +294,7 @@ export component SettingsWindow inherits Window {
     // General settings callbacks
     callback set-polling-interval(int /* secs */);
     callback set-auto-start(bool);
+    callback set-activity-current-height(length /* px */);
     callback hide-process(string /* process */);
     callback restore-defaults();
     callback search-changed(string /* query */);
@@ -1446,6 +1447,9 @@ export component SettingsWindow inherits Window {
                         pointer-event(e) => {
                             if (e.kind == PointerEventKind.down) {
                                 self.press-height = root.activity-current-height;
+                            }
+                            if (e.kind == PointerEventKind.up) {
+                                root.set-activity-current-height(root.activity-current-height);
                             }
                         }
                         moved => {
