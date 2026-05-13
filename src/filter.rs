@@ -55,6 +55,12 @@ pub struct WindowInfo {
     /// Floating helpers (find/replace, color pickers, tool palettes) leave the
     /// owner enabled, so they should not shield the parent from idle actions.
     pub disables_owner: bool,
+    /// PID of the owner window when this window's owner is disabled (a real
+    /// modal). Used to shield the owner process from idle actions for the
+    /// out-of-process modal case (owner and dialog hosted in different
+    /// processes, e.g. shell-hosted picker dialogs). `None` when not a modal,
+    /// not owned, or the lookup failed.
+    pub owner_pid: Option<u32>,
     pub own_pid: bool, // belongs to the fade process
     /// True if DWM reports the window as cloaked (hidden by shell/UWP/virtual
     /// desktop). Cloaked windows are invisible to the user even though
@@ -126,6 +132,7 @@ mod tests {
             is_tool_window: false,
             is_owned: false,
             disables_owner: false,
+            owner_pid: None,
             own_pid: false,
             is_cloaked: false,
             is_on_current_desktop: true,

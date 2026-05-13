@@ -309,6 +309,22 @@ mod win32_impl {
             Some(owner) => !IsWindowEnabled(owner).as_bool(),
             None => false,
         };
+        // For out-of-process modals (owner and dialog live in different PIDs,
+        // e.g. shell-hosted picker dialogs), the owner window's PID must also
+        // be shielded — the dialog's PID isn't enough.
+        let owner_pid = if disables_owner {
+            owner_hwnd.and_then(|owner| {
+                let mut opid: u32 = 0;
+                GetWindowThreadProcessId(owner, Some(&mut opid));
+                if opid != 0 && opid != pid {
+                    Some(opid)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
 
         // SAFETY block 6: DWM cloaked query. Documented to be safe on any HWND.
         let is_cloaked = is_window_cloaked(hwnd);
@@ -320,6 +336,7 @@ mod win32_impl {
             is_tool_window,
             is_owned,
             disables_owner,
+            owner_pid,
             own_pid: pid == ctx.own_pid,
             is_cloaked,
             // Virtual-desktop hiding manifests as DWM_CLOAKED_SHELL on Win10/11,

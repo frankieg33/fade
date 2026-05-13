@@ -290,12 +290,19 @@ impl<W: WindowApi> Monitor<W> {
         // replace, color picker, tool palettes) don't qualify. We must NOT
         // pre-filter with is_system_window here: legitimate dialogs frequently
         // look "system-like" but are exactly what this guard exists to protect.
-        let pids_with_modal: HashSet<u32> = self
-            .current_windows
-            .iter()
-            .filter(|e| e.info.disables_owner)
-            .map(|e| e.pid)
-            .collect();
+        // Include both the dialog's PID and the owner's PID. For most modals
+        // these are the same, but out-of-process modals (shell-hosted picker
+        // dialogs over an app) have distinct PIDs — without the owner's PID
+        // the true parent window would still be eligible for idle actions.
+        let mut pids_with_modal: HashSet<u32> = HashSet::new();
+        for entry in &self.current_windows {
+            if entry.info.disables_owner {
+                pids_with_modal.insert(entry.pid);
+                if let Some(opid) = entry.info.owner_pid {
+                    pids_with_modal.insert(opid);
+                }
+            }
+        }
 
         for entry in &self.current_windows {
             let proc_lower = entry.info.process_name.to_lowercase();
@@ -556,6 +563,7 @@ mod tests {
                 is_tool_window: false,
                 is_owned: false,
                 disables_owner: false,
+                owner_pid: None,
                 own_pid: false,
                 is_cloaked: false,
                 is_on_current_desktop: true,
@@ -839,6 +847,7 @@ mod tests {
                 is_tool_window: false,
                 is_owned: false,
                 disables_owner: false,
+                owner_pid: None,
                 own_pid: false,
                 is_cloaked: false,
                 is_on_current_desktop: true,
@@ -1105,6 +1114,44 @@ mod tests {
         modal.info.disables_owner = true;
         // Same PID — they belong to the same process instance.
         modal.pid = parent.pid;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, modal]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_out_of_process_modal_shields_owner() {
+        // Some Win32 modals are hosted in a different process than their
+        // owner (shell-hosted picker dialogs, security prompts). The shield
+        // must cover the owner's PID, not just the dialog's.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(30, "notepad.exe", "Untitled - Notepad");
+        // Modal lives in a different process (different pid) but reports the
+        // parent's pid as owner_pid.
+        let mut modal = make_entry(31, "PickerHost.exe", "Save As");
+        modal.info.is_owned = true;
+        modal.info.disables_owner = true;
+        modal.info.owner_pid = Some(parent.pid);
 
         mock.set_foreground(Some("other.exe"));
         mock.set_windows(vec![parent, modal]);
