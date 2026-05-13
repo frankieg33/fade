@@ -350,8 +350,11 @@ fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
             let apps: Vec<GroupAppModel> = bucket
                 .processes
                 .iter()
-                .filter(|proc| q.is_empty() || name_matches || proc.to_lowercase().contains(&q))
-                .map(|proc| {
+                .enumerate()
+                .filter(|(_, proc)| {
+                    q.is_empty() || name_matches || proc.to_lowercase().contains(&q)
+                })
+                .map(|(a_idx, proc)| {
                     let rule = find_app_rule(config, proc);
                     let customized = rule
                         .map(|r| config::app_is_customized(bucket, r))
@@ -372,6 +375,7 @@ fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
                         enabled,
                         timeout_mins: timeout,
                         action,
+                        orig_app_index: a_idx as i32,
                     }
                 })
                 .collect();
@@ -391,6 +395,7 @@ fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
                 // Force-expand while a search is active so matches are visible.
                 // Original collapse state is preserved in config and restored when search clears.
                 expanded: if q.is_empty() { bucket.expanded } else { true },
+                orig_index: g_idx as i32,
             })
         })
         .collect()
@@ -399,17 +404,24 @@ fn build_groups(config: &Config, search: &str) -> Vec<GroupModel> {
 /// Build unassigned rules — app_rules whose process isn't in any bucket.
 fn build_unassigned_rules(config: &Config, search: &str) -> Vec<UnassignedRuleModel> {
     let q = search.trim().to_lowercase();
-    config
+    // Pre-compute the unfiltered unassigned ordering so the orig_index we
+    // expose matches what the Rust callbacks reconstruct on dispatch.
+    let unfiltered: Vec<&config::AppRule> = config
         .app_rule
         .iter()
         .filter(|r| !process_in_any_bucket(config, &r.process))
-        .filter(|r| q.is_empty() || r.process.to_lowercase().contains(&q))
-        .map(|r| UnassignedRuleModel {
+        .collect();
+    unfiltered
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| q.is_empty() || r.process.to_lowercase().contains(&q))
+        .map(|(idx, r)| UnassignedRuleModel {
             icon: config.icon_for_app(&r.process).into(),
             process: r.process.clone().into(),
             timeout_mins: r.timeout_mins as i32,
             action: r.action.as_str().into(),
             enabled: r.enabled,
+            orig_index: idx as i32,
         })
         .collect()
 }
@@ -712,11 +724,15 @@ fn setup_gui_callbacks(
             } else {
                 let bucket_timeout = c.bucket[g].timeout_mins;
                 let bucket_action = c.bucket[g].action.clone();
+                // Inherit the bucket's enabled state. Hard-coding enabled=true
+                // would silently promote an app inside a disabled bucket into a
+                // managed app just because the user picked a custom icon.
+                let bucket_enabled = c.bucket[g].enabled;
                 c.app_rule.push(config::AppRule {
                     process,
                     timeout_mins: bucket_timeout,
                     action: bucket_action,
-                    enabled: true,
+                    enabled: bucket_enabled,
                     icon: Some(glyph.to_string()),
                     customized: false,
                 });
@@ -1447,8 +1463,15 @@ fn setup_gui_callbacks(
 
     let cfg = config.clone();
     window.on_set_activity_current_height(move |h| {
+        // The UI drag clamps to 80..800 already; defend against a non-finite
+        // value sneaking in (saturated arithmetic, etc.) before it touches
+        // persisted config or future loads.
+        if !h.is_finite() {
+            return;
+        }
+        let clamped = h.clamp(80.0, 800.0);
         if let Ok(mut c) = cfg.write() {
-            c.general.activity_current_height = Some(h);
+            c.general.activity_current_height = Some(clamped);
             if let Err(e) = c.save() {
                 log::error!("config save failed: {}", e);
             }
@@ -1506,6 +1529,13 @@ fn setup_gui_callbacks(
     let snap = snapshot_buffer.clone();
     let search = search_state.clone();
     window.on_restore_defaults(move || {
+        // Defaults set auto_start=false; that field alone does not unregister
+        // the Windows startup entry, so we must call set_auto_start(false) too.
+        // Otherwise the UI/config claim Fade won't start with Windows while the
+        // OS keeps launching it.
+        if let Err(e) = autostart::set_auto_start(false) {
+            log::warn!("Auto-start disable during restore failed: {}", e);
+        }
         if let Ok(mut c) = cfg.write() {
             *c = Config::default_config();
             if let Err(e) = c.save() {

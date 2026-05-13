@@ -10,6 +10,7 @@ export struct GroupAppModel {
     enabled: bool,          // from app_rule if customized, else bucket.enabled
     timeout-mins: int,      // from app_rule if customized, else bucket value
     action: string,         // from app_rule if customized, else bucket value
+    orig-app-index: int,    // original index into bucket.processes (search-stable)
 }
 
 // A group card (bucket)
@@ -21,6 +22,7 @@ export struct GroupModel {
     action: string,         // bucket.action
     apps: [GroupAppModel],  // processes in this bucket
     expanded: bool,
+    orig-index: int,        // original index into config.bucket (search-stable)
 }
 
 // An unassigned app rule (not in any bucket)
@@ -30,6 +32,7 @@ export struct UnassignedRuleModel {
     timeout-mins: int,
     action: string,
     enabled: bool,
+    orig-index: int,        // original index in the unfiltered unassigned list
 }
 
 // Active process in the drawer
@@ -551,7 +554,7 @@ export component SettingsWindow inherits Window {
                         spacing: 12px;
 
                         // ── Group cards ──
-                        for group[g-idx] in root.groups: Rectangle {
+                        for group in root.groups: Rectangle {
                             border-radius: FadeTheme.radius;
                             background: FadeTheme.card-bg;
                             border-width: 1px;
@@ -571,7 +574,7 @@ export component SettingsWindow inherits Window {
                                         mouse-cursor: pointer;
                                         clicked => {
                                             root.confirming-delete-group = -1;
-                                            root.toggle-group-expanded(g-idx);
+                                            root.toggle-group-expanded(group.orig-index);
                                         }
                                     }
 
@@ -584,7 +587,7 @@ export component SettingsWindow inherits Window {
                                             alignment: center;
                                             FadeCheck {
                                                 checked: group.enabled;
-                                                toggled => { root.toggle-group(g-idx, self.checked); }
+                                                toggled => { root.toggle-group(group.orig-index, self.checked); }
                                             }
                                         }
                                         Rectangle {
@@ -596,7 +599,7 @@ export component SettingsWindow inherits Window {
                                                 mouse-cursor: pointer;
                                                 clicked => {
                                                     root.confirming-delete-group = -1;
-                                                    root.icon-picker-group = g-idx;
+                                                    root.icon-picker-group = group.orig-index;
                                                     root.icon-picker-app = -1;
                                                     root.icon-search-text = "";
                                                     root.icon-hovered-name = "";
@@ -612,7 +615,7 @@ export component SettingsWindow inherits Window {
                                                 vertical-alignment: center;
                                             }
                                         }
-                                        if root.renaming-group != g-idx: Text {
+                                        if root.renaming-group != group.orig-index: Text {
                                             text: group.name;
                                             color: FadeTheme.text;
                                             font-size: 14px;
@@ -620,7 +623,7 @@ export component SettingsWindow inherits Window {
                                             vertical-alignment: center;
                                             horizontal-stretch: 1;
                                         }
-                                        if root.renaming-group == g-idx: LineEdit {
+                                        if root.renaming-group == group.orig-index: LineEdit {
                                             text: group.name;
                                             horizontal-stretch: 1;
                                             font-size: 14px;
@@ -630,7 +633,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                             }
                                             accepted(val) => {
-                                                root.rename-group(g-idx, val);
+                                                root.rename-group(group.orig-index, val);
                                                 root.renaming-group = -1;
                                             }
                                         }
@@ -644,7 +647,7 @@ export component SettingsWindow inherits Window {
                                                 mouse-cursor: pointer;
                                                 clicked => {
                                                     root.confirming-delete-group = -1;
-                                                    root.renaming-group = root.renaming-group == g-idx ? -1 : g-idx;
+                                                    root.renaming-group = root.renaming-group == group.orig-index ? -1 : group.orig-index;
                                                 }
                                             }
                                             Text {
@@ -673,7 +676,7 @@ export component SettingsWindow inherits Window {
                                                     value: Math.ceil(group.timeout-mins / 5);
                                                     changed(val) => {
                                                         root.confirming-delete-group = -1;
-                                                        root.update-group-timeout(g-idx, Math.round(val) * 5);
+                                                        root.update-group-timeout(group.orig-index, Math.round(val) * 5);
                                                     }
                                                 }
                                             }
@@ -684,7 +687,7 @@ export component SettingsWindow inherits Window {
                                             current-value: group.action;
                                             selected(val) => {
                                                 root.confirming-delete-group = -1;
-                                                root.update-group-action(g-idx, val);
+                                                root.update-group-action(group.orig-index, val);
                                             }
                                         }
                                         // Delete group button (two-click confirm)
@@ -692,13 +695,13 @@ export component SettingsWindow inherits Window {
                                             compact-width: 28px;
                                             confirm-width: 60px;
                                             button-height: 26px;
-                                            confirming: root.confirming-delete-group == g-idx;
+                                            confirming: root.confirming-delete-group == group.orig-index;
                                             clicked => {
-                                                if (root.confirming-delete-group == g-idx) {
-                                                    root.delete-group(g-idx);
+                                                if (root.confirming-delete-group == group.orig-index) {
+                                                    root.delete-group(group.orig-index);
                                                     root.confirming-delete-group = -1;
                                                 } else {
-                                                    root.confirming-delete-group = g-idx;
+                                                    root.confirming-delete-group = group.orig-index;
                                                 }
                                             }
                                         }
@@ -733,7 +736,7 @@ export component SettingsWindow inherits Window {
                                                 }
                                             }
                                             accepted(val) => {
-                                                root.add-to-group(g-idx, val);
+                                                root.add-to-group(group.orig-index, val);
                                                 add-input.text = "";
                                             }
                                         }
@@ -748,7 +751,7 @@ export component SettingsWindow inherits Window {
                                                 mouse-cursor: pointer;
                                                 clicked => {
                                                     root.confirming-delete-group = -1;
-                                                    root.add-to-group(g-idx, add-input.text);
+                                                    root.add-to-group(group.orig-index, add-input.text);
                                                     add-input.text = "";
                                                 }
                                             }
@@ -771,7 +774,7 @@ export component SettingsWindow inherits Window {
                                     padding-bottom: 8px;
                                     spacing: 2px;
 
-                                    for app[a-idx] in group.apps: Rectangle {
+                                    for app in group.apps: Rectangle {
                                         height: 44px;
                                         border-radius: 4px;
                                         background: app-row-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
@@ -789,7 +792,7 @@ export component SettingsWindow inherits Window {
                                                 alignment: center;
                                                 FadeCheck {
                                                     checked: app.enabled;
-                                                    toggled => { root.toggle-app(g-idx, a-idx, self.checked); }
+                                                    toggled => { root.toggle-app(group.orig-index, app.orig-app-index, self.checked); }
                                                 }
                                             }
                                             Rectangle {
@@ -801,8 +804,8 @@ export component SettingsWindow inherits Window {
                                                     mouse-cursor: pointer;
                                                     clicked => {
                                                         root.confirming-delete-group = -1;
-                                                        root.icon-picker-group = g-idx;
-                                                        root.icon-picker-app = a-idx;
+                                                        root.icon-picker-group = group.orig-index;
+                                                        root.icon-picker-app = app.orig-app-index;
                                                         root.icon-search-text = "";
                                                     root.icon-hovered-name = "";
                                                         root.icon-search-changed("");
@@ -842,7 +845,7 @@ export component SettingsWindow inherits Window {
                                                         value: Math.ceil(app.timeout-mins / 5);
                                                         changed(val) => {
                                                             root.confirming-delete-group = -1;
-                                                            root.update-app-timeout(g-idx, a-idx, Math.round(val) * 5);
+                                                            root.update-app-timeout(group.orig-index, app.orig-app-index, Math.round(val) * 5);
                                                         }
                                                     }
                                                 }
@@ -854,7 +857,7 @@ export component SettingsWindow inherits Window {
                                                 current-value: app.action;
                                                 selected(val) => {
                                                     root.confirming-delete-group = -1;
-                                                    root.update-app-action(g-idx, a-idx, val);
+                                                    root.update-app-action(group.orig-index, app.orig-app-index, val);
                                                 }
                                             }
 
@@ -870,7 +873,7 @@ export component SettingsWindow inherits Window {
                                                     mouse-cursor: pointer;
                                                     clicked => {
                                                         root.confirming-delete-group = -1;
-                                                        root.customize-app(g-idx, a-idx);
+                                                        root.customize-app(group.orig-index, app.orig-app-index);
                                                     }
                                                 }
                                                 Text {
@@ -892,7 +895,7 @@ export component SettingsWindow inherits Window {
                                                     mouse-cursor: pointer;
                                                     clicked => {
                                                         root.confirming-delete-group = -1;
-                                                        root.reset-app-to-group(g-idx, a-idx);
+                                                        root.reset-app-to-group(group.orig-index, app.orig-app-index);
                                                     }
                                                 }
                                                 Text {
@@ -914,8 +917,8 @@ export component SettingsWindow inherits Window {
                                                     mouse-cursor: pointer;
                                                     clicked => {
                                                         root.confirming-delete-group = -1;
-                                                        root.kebab-group = g-idx;
-                                                        root.kebab-app = a-idx;
+                                                        root.kebab-group = group.orig-index;
+                                                        root.kebab-app = app.orig-app-index;
                                                     }
                                                 }
                                                 Text {
@@ -931,7 +934,7 @@ export component SettingsWindow inherits Window {
                                             FadeDeleteButton {
                                                 clicked => {
                                                     root.confirming-delete-group = -1;
-                                                    root.delete-app-from-group(g-idx, a-idx);
+                                                    root.delete-app-from-group(group.orig-index, app.orig-app-index);
                                                 }
                                             }
                                         }
@@ -975,7 +978,7 @@ export component SettingsWindow inherits Window {
                                     padding: 8px;
                                     spacing: 2px;
 
-                                    for urule[u-idx] in root.unassigned-rules: Rectangle {
+                                    for urule in root.unassigned-rules: Rectangle {
                                         height: 44px;
                                         border-radius: 4px;
                                         background: u-ta.has-hover ? FadeTheme.surface-hover : FadeTheme.surface;
@@ -992,7 +995,7 @@ export component SettingsWindow inherits Window {
                                                 alignment: center;
                                                 FadeCheck {
                                                     checked: urule.enabled;
-                                                    toggled => { root.toggle-unassigned(u-idx, self.checked); }
+                                                    toggled => { root.toggle-unassigned(urule.orig-index, self.checked); }
                                                 }
                                             }
                                             Rectangle {
@@ -1031,7 +1034,7 @@ export component SettingsWindow inherits Window {
                                                         value: Math.ceil(urule.timeout-mins / 5);
                                                         changed(val) => {
                                                             root.confirming-delete-group = -1;
-                                                            root.update-unassigned-timeout(u-idx, Math.round(val) * 5);
+                                                            root.update-unassigned-timeout(urule.orig-index, Math.round(val) * 5);
                                                         }
                                                     }
                                                 }
@@ -1043,7 +1046,7 @@ export component SettingsWindow inherits Window {
                                                 current-value: urule.action;
                                                 selected(val) => {
                                                     root.confirming-delete-group = -1;
-                                                    root.update-unassigned-action(u-idx, val);
+                                                    root.update-unassigned-action(urule.orig-index, val);
                                                 }
                                             }
                                             // Assign-to-group kebab
@@ -1056,7 +1059,7 @@ export component SettingsWindow inherits Window {
                                                     mouse-cursor: pointer;
                                                     clicked => {
                                                         root.confirming-delete-group = -1;
-                                                        root.unassigned-kebab = u-idx;
+                                                        root.unassigned-kebab = urule.orig-index;
                                                     }
                                                 }
                                                 Text {
@@ -1072,7 +1075,7 @@ export component SettingsWindow inherits Window {
                                             FadeDeleteButton {
                                                 clicked => {
                                                     root.confirming-delete-group = -1;
-                                                    root.remove-unassigned(u-idx);
+                                                    root.remove-unassigned(urule.orig-index);
                                                 }
                                             }
                                         }
@@ -1660,17 +1663,17 @@ export component SettingsWindow inherits Window {
                             }
                         }
 
-                        for dest[d-idx] in root.groups: Rectangle {
-                            height: d-idx == root.kebab-group ? 0px : 30px;
+                        for dest in root.groups: Rectangle {
+                            height: dest.orig-index == root.kebab-group ? 0px : 30px;
                             border-radius: 4px;
                             background: dest-ta.has-hover ? FadeTheme.surface-hover : transparent;
-                            visible: d-idx != root.kebab-group;
+                            visible: dest.orig-index != root.kebab-group;
                             dest-ta := TouchArea {
                                 mouse-cursor: pointer;
-                                enabled: d-idx != root.kebab-group;
+                                enabled: dest.orig-index != root.kebab-group;
                                 clicked => {
                                     root.confirming-delete-group = -1;
-                                    root.move-app(root.kebab-group, root.kebab-app, d-idx);
+                                    root.move-app(root.kebab-group, root.kebab-app, dest.orig-index);
                                     root.kebab-group = -1;
                                     root.kebab-app = -1;
                                 }
@@ -1816,7 +1819,7 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
-                        for dest[d-idx] in root.groups: Rectangle {
+                        for dest in root.groups: Rectangle {
                             height: 30px;
                             border-radius: 4px;
                             background: ug-ta.has-hover ? FadeTheme.surface-hover : transparent;
@@ -1824,7 +1827,7 @@ export component SettingsWindow inherits Window {
                                 mouse-cursor: pointer;
                                 clicked => {
                                     root.confirming-delete-group = -1;
-                                    root.assign-to-group(root.unassigned-kebab, d-idx);
+                                    root.assign-to-group(root.unassigned-kebab, dest.orig-index);
                                     root.unassigned-kebab = -1;
                                 }
                             }
