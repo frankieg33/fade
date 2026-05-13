@@ -298,9 +298,7 @@ mod win32_impl {
         // SAFETY block 5: style + ownership lookups operate on a valid HWND.
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
-        let owner_hwnd = GetWindow(hwnd, GW_OWNER)
-            .ok()
-            .filter(|o| !o.0.is_null());
+        let owner_hwnd = GetWindow(hwnd, GW_OWNER).ok().filter(|o| !o.0.is_null());
         let is_owned = owner_hwnd.is_some();
         // A true application-modal dialog disables its owner (the parent goes
         // grey and can't be clicked). Floating helpers — find/replace, color

@@ -55,7 +55,7 @@ pub struct WindowInfo {
     /// Floating helpers (find/replace, color pickers, tool palettes) leave the
     /// owner enabled, so they should not shield the parent from idle actions.
     pub disables_owner: bool,
-    pub own_pid: bool,        // belongs to the fade process
+    pub own_pid: bool, // belongs to the fade process
     /// True if DWM reports the window as cloaked (hidden by shell/UWP/virtual
     /// desktop). Cloaked windows are invisible to the user even though
     /// IsWindowVisible() returns true, so we must skip them.
