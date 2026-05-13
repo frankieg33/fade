@@ -48,8 +48,7 @@ pub struct WindowInfo {
     pub title: String,
     pub class_name: String,
     pub is_tool_window: bool, // WS_EX_TOOLWINDOW style
-    #[allow(dead_code)]
-    pub is_owned: bool, // has an owner window
+    pub is_owned: bool,       // has an owner window (modal/popup/dialog)
     pub own_pid: bool,        // belongs to the fade process
 }
 

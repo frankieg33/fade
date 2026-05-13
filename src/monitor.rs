@@ -229,6 +229,16 @@ impl<W: WindowApi> Monitor<W> {
             }
         };
 
+        // PIDs that currently have at least one owned (modal/popup) window visible.
+        // Acting on the parent of an active modal can interrupt save/auth dialogs,
+        // so we skip the entire process if any of its windows is owned.
+        let pids_with_owned: HashSet<u32> = self
+            .current_windows
+            .iter()
+            .filter(|e| e.info.is_owned && !filter::is_system_window(&e.info))
+            .map(|e| e.pid)
+            .collect();
+
         for entry in &self.current_windows {
             let proc_lower = entry.info.process_name.to_lowercase();
 
@@ -239,6 +249,23 @@ impl<W: WindowApi> Monitor<W> {
 
             // Skip system/filtered windows
             if filter::is_system_window(&entry.info) {
+                continue;
+            }
+
+            // Skip owned windows (modals, popups, dialogs) — they belong to a parent.
+            if entry.info.is_owned {
+                continue;
+            }
+
+            // Skip windows whose process currently has an owned window visible.
+            // The owned window may be an active modal dialog; closing the parent
+            // would tear it down mid-interaction.
+            if pids_with_owned.contains(&entry.pid) {
+                log::debug!(
+                    "Skipping {} ({}) — process has an owned/modal window open",
+                    entry.info.process_name,
+                    entry.info.title
+                );
                 continue;
             }
 
@@ -950,6 +977,72 @@ mod tests {
         // Second poll: now it should act (idle clock was reset, but timeout=0)
         monitor.poll();
         assert!(!mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_owned_window_not_acted_on() {
+        // An owned (modal/popup) window should never be a direct action target.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let mut owned = make_entry(1, "notepad.exe", "Save As");
+        owned.info.is_owned = true;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![owned]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_parent_skipped_when_owned_modal_exists() {
+        // If a process has an owned/modal window open, the parent window should
+        // also be skipped — closing it would tear down the active modal.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(10, "notepad.exe", "Untitled - Notepad");
+        let mut modal = make_entry(11, "notepad.exe", "Save As");
+        modal.info.is_owned = true;
+        // Same PID — they belong to the same process instance.
+        modal.pid = parent.pid;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, modal]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
     }
 
     #[test]
