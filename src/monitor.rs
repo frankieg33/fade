@@ -1,7 +1,7 @@
 /// Core idle-detection polling loop.
 /// Tracks which processes were last in the foreground and triggers
 /// minimize/close actions when idle timeouts are exceeded.
-use crate::config::{Action, Config};
+use crate::config::{Action, Config, RuleSource};
 use crate::filter;
 use crate::winapi::{WindowApi, WindowEntry};
 use std::collections::HashMap;
@@ -37,6 +37,13 @@ pub struct ActionLogEntry {
     pub action: Action,
     /// Seconds since UNIX epoch (for display formatting on the GUI side).
     pub timestamp: u64,
+    /// Whether the rule that triggered this action came from an app_rule or a
+    /// bucket. Persisted for debugging; the GUI does not currently surface it.
+    #[allow(dead_code)]
+    pub rule_source: RuleSource,
+    /// Timeout (minutes) that was in effect when the action fired.
+    #[allow(dead_code)]
+    pub timeout_mins: u64,
 }
 
 /// Shared ring-buffer of recent actions. Most-recent first.
@@ -68,7 +75,18 @@ pub struct Monitor<W: WindowApi> {
     process_start_cache: HashMap<u32, Option<std::time::SystemTime>>,
     /// Ring-buffer of recent actions for the Activity GUI tab.
     action_log: ActionLog,
+    /// Instant of the previous successful poll. Used to detect resume-from-sleep
+    /// and other monotonic-clock gaps so we don't immediately fire actions
+    /// across a system suspend/lock interval.
+    last_poll_at: Option<Instant>,
 }
+
+/// If the gap between two polls exceeds the expected interval by more than
+/// this factor (e.g. >5× the poll interval), assume the system suspended,
+/// locked, or hibernated and rebase idle timestamps to "now". This prevents
+/// surprise closes the instant the user unlocks.
+const POLL_GAP_FACTOR: u32 = 5;
+const POLL_GAP_FLOOR_SECS: u64 = 60;
 
 impl<W: WindowApi> Monitor<W> {
     pub fn new(
@@ -90,10 +108,18 @@ impl<W: WindowApi> Monitor<W> {
             first_seen: HashMap::new(),
             process_start_cache: HashMap::new(),
             action_log,
+            last_poll_at: None,
         }
     }
 
-    fn record_action(&self, process: &str, title: &str, action: Action) {
+    fn record_action(
+        &self,
+        process: &str,
+        title: &str,
+        action: Action,
+        rule_source: RuleSource,
+        timeout_mins: u64,
+    ) {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -104,6 +130,8 @@ impl<W: WindowApi> Monitor<W> {
                 title: title.to_string(),
                 action,
                 timestamp: ts,
+                rule_source,
+                timeout_mins,
             });
             while log.len() > ACTION_LOG_CAPACITY {
                 log.pop_back();
@@ -126,6 +154,31 @@ impl<W: WindowApi> Monitor<W> {
         };
 
         let now = Instant::now();
+
+        // 0a. Detect resume-from-sleep / lock / hibernation: if the gap since
+        // the previous poll dwarfs the expected interval, treat every tracked
+        // process as freshly active so we don't immediately act on something
+        // the user is about to come back to.
+        let interval_secs = config.general.polling_interval_secs.max(1);
+        let threshold = Duration::from_secs(
+            (interval_secs * POLL_GAP_FACTOR as u64).max(POLL_GAP_FLOOR_SECS),
+        );
+        let resumed_from_gap = match self.last_poll_at {
+            Some(prev) => now.duration_since(prev) > threshold,
+            None => false,
+        };
+        if resumed_from_gap {
+            log::warn!(
+                "Poll gap exceeded {:?}; treating as suspend/resume — rebasing idle timestamps",
+                threshold
+            );
+            if let Ok(mut ts) = self.foreground_timestamps.lock() {
+                for v in ts.values_mut() {
+                    *v = now;
+                }
+            }
+        }
+        self.last_poll_at = Some(now);
 
         // 0. Detect newly managed processes and reset their idle clock.
         // This prevents immediate action when a rule is added for an already-open window.
@@ -216,6 +269,8 @@ impl<W: WindowApi> Monitor<W> {
             title: String,
             action: Action,
             idle_secs: f64,
+            rule_source: RuleSource,
+            timeout_mins: u64,
         }
 
         let mut actions: Vec<PendingAction> = Vec::new();
@@ -316,7 +371,14 @@ impl<W: WindowApi> Monitor<W> {
                 continue;
             }
 
-            // Double-check it's not now the foreground
+            // Double-check it's not now the foreground (HWND-level — the
+            // process-name check above is conservative for same-process
+            // windows but cannot distinguish two HWNDs sharing a process name).
+            let current_fg_hwnd = self.api.get_foreground_hwnd();
+            if current_fg_hwnd != 0 && current_fg_hwnd == entry.hwnd {
+                new_timestamps.push((proc_lower, Instant::now()));
+                continue;
+            }
             if let Some(current_fg) = self.api.get_foreground_process() {
                 if current_fg.to_lowercase() == proc_lower {
                     new_timestamps.push((proc_lower, Instant::now()));
@@ -330,6 +392,8 @@ impl<W: WindowApi> Monitor<W> {
                 title: entry.info.title.clone(),
                 action: rule.action.clone(),
                 idle_secs: idle_duration.as_secs_f64(),
+                rule_source: rule.source,
+                timeout_mins: rule.timeout_mins,
             });
         }
 
@@ -342,35 +406,38 @@ impl<W: WindowApi> Monitor<W> {
             }
         }
 
-        // Execute actions
+        // Execute actions. Window titles can contain sensitive content
+        // (document names, URLs, draft subject lines) so the info-level log
+        // line omits them; the full title is preserved at debug level and in
+        // the in-memory action log used by the GUI.
         for action in actions {
+            let verb = match action.action {
+                Action::Minimize => "Minimizing",
+                Action::Close => "Closing",
+            };
+            log::info!(
+                "{verb}: {} — idle {:.0}s [source={}, timeout={}m]",
+                action.process,
+                action.idle_secs,
+                action.rule_source.as_str(),
+                action.timeout_mins,
+            );
+            log::debug!(
+                "{verb} hwnd={:#x} title={:?}",
+                action.hwnd,
+                action.title
+            );
             match action.action {
-                Action::Minimize => {
-                    // Info-level log avoids the window title; titles can leak
-                    // sensitive activity (document names, URLs, chat subjects)
-                    // into the on-disk Windows release log. The full title is
-                    // still recorded in the in-memory Activity log for the UI
-                    // and is available at debug level for troubleshooting.
-                    log::info!(
-                        "Minimizing: {} — idle {:.0}s",
-                        action.process,
-                        action.idle_secs
-                    );
-                    log::debug!("Minimizing title: {}", action.title);
-                    self.api.minimize_window(action.hwnd);
-                    self.record_action(&action.process, &action.title, Action::Minimize);
-                }
-                Action::Close => {
-                    log::info!(
-                        "Closing: {} — idle {:.0}s",
-                        action.process,
-                        action.idle_secs
-                    );
-                    log::debug!("Closing title: {}", action.title);
-                    self.api.close_window(action.hwnd);
-                    self.record_action(&action.process, &action.title, Action::Close);
-                }
+                Action::Minimize => self.api.minimize_window(action.hwnd),
+                Action::Close => self.api.close_window(action.hwnd),
             }
+            self.record_action(
+                &action.process,
+                &action.title,
+                action.action,
+                action.rule_source,
+                action.timeout_mins,
+            );
         }
 
         // Publish snapshot for GUI
@@ -490,6 +557,8 @@ mod tests {
                 is_tool_window: false,
                 is_owned: false,
                 own_pid: false,
+                is_cloaked: false,
+                is_on_current_desktop: true,
             },
         }
     }
@@ -770,6 +839,8 @@ mod tests {
                 is_tool_window: false,
                 is_owned: false,
                 own_pid: false,
+                is_cloaked: false,
+                is_on_current_desktop: true,
             },
         }]);
         timestamps.lock().unwrap().insert(
@@ -1042,6 +1113,39 @@ mod tests {
         monitor.poll();
 
         assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_foreground_hwnd_skips_action() {
+        // Two windows share a process name. The currently-foreground HWND must
+        // not be acted on even though the process-name FG check could (e.g. if
+        // get_foreground_process resolves to a different host's name).
+        let config = make_config(
+            vec![AppRule {
+                process: "chrome.exe".into(),
+                timeout_mins: 0,
+                action: Action::Minimize,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        // Foreground process resolves to something different (simulating a
+        // host process whose name differs from the window's own process name).
+        mock.set_foreground(Some("other.exe"));
+        mock.set_foreground_hwnd(42);
+        mock.set_windows(vec![make_entry(42, "chrome.exe", "Active tab")]);
+        timestamps.lock().unwrap().insert(
+            "chrome.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        // HWND-level check should have spared it.
         assert!(mock.get_minimized().is_empty());
     }
 

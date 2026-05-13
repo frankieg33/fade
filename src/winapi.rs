@@ -9,6 +9,14 @@ pub trait WindowApi: Send + Sync {
     /// Get the process name of the currently foreground window.
     fn get_foreground_process(&self) -> Option<String>;
 
+    /// Get the HWND of the currently foreground window, or 0 if none.
+    /// Used to compare candidate windows by handle rather than process name —
+    /// process-name comparison is ambiguous when multiple processes share a name
+    /// or when host processes (ApplicationFrameHost, browsers) reparent windows.
+    fn get_foreground_hwnd(&self) -> isize {
+        0
+    }
+
     /// Enumerate all visible, non-minimized, top-level windows.
     /// Returns WindowEntry structs with HWND, process name, title, class, and style flags.
     fn enumerate_visible_windows(&self) -> Vec<WindowEntry>;
@@ -83,12 +91,19 @@ mod win32_impl {
             }
         }
 
+        fn get_foreground_hwnd(&self) -> isize {
+            // SAFETY: GetForegroundWindow has no preconditions; null is valid.
+            unsafe { GetForegroundWindow().0 as isize }
+        }
+
         fn enumerate_visible_windows(&self) -> Vec<WindowEntry> {
             let own_pid = self.own_pid;
+            // SAFETY: ctx is stack-allocated and outlives the EnumWindows call.
             unsafe {
                 let mut ctx = EnumContext {
                     results: Vec::new(),
                     own_pid,
+                    pid_name_cache: std::collections::HashMap::new(),
                 };
                 let _ = EnumWindows(
                     Some(enum_window_callback_v2),
@@ -134,33 +149,53 @@ mod win32_impl {
                 }
 
                 let style = GetWindowLongW(h, GWL_STYLE) as u32;
-                let _ex_style = GetWindowLongW(h, GWL_EXSTYLE) as u32;
-
-                // Fullscreen windows are typically WS_POPUP without WS_THICKFRAME
                 let is_popup = (style & WS_POPUP.0) != 0;
                 let no_border = (style & WS_THICKFRAME.0) == 0;
+                let classic_fullscreen = is_popup && no_border;
 
-                if !(is_popup && no_border) {
+                // Resolve window rect + monitor rect once for both heuristics.
+                let mut rect = std::mem::zeroed::<windows::Win32::Foundation::RECT>();
+                if GetWindowRect(h, &mut rect).is_err() {
                     return false;
                 }
-
-                // Check if window covers the entire monitor
-                let mut rect = std::mem::zeroed::<windows::Win32::Foundation::RECT>();
-                let _ = GetWindowRect(h, &mut rect);
-
                 let monitor = MonitorFromWindow(h, MONITOR_DEFAULTTOPRIMARY);
                 let mut mi = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
                 };
-                if GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                    rect.left == mi.rcMonitor.left
-                        && rect.top == mi.rcMonitor.top
-                        && rect.right == mi.rcMonitor.right
-                        && rect.bottom == mi.rcMonitor.bottom
-                } else {
-                    false
+                if !GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                    return false;
                 }
+
+                // Path 1: classic borderless-popup fullscreen with exact match.
+                if classic_fullscreen
+                    && rect.left == mi.rcMonitor.left
+                    && rect.top == mi.rcMonitor.top
+                    && rect.right == mi.rcMonitor.right
+                    && rect.bottom == mi.rcMonitor.bottom
+                {
+                    return true;
+                }
+
+                // Path 2: borderless/windowed-fullscreen variants used by DXGI and
+                // many games — window may have WS_OVERLAPPEDWINDOW styles but its
+                // client area covers (nearly) the whole monitor with no taskbar
+                // visible. Treat ≥99% coverage of monitor area as fullscreen,
+                // tolerating a few pixels of DWM extended frame.
+                let win_w = (rect.right - rect.left).max(0) as i64;
+                let win_h = (rect.bottom - rect.top).max(0) as i64;
+                let mon_w = (mi.rcMonitor.right - mi.rcMonitor.left).max(1) as i64;
+                let mon_h = (mi.rcMonitor.bottom - mi.rcMonitor.top).max(1) as i64;
+                let win_area = win_w * win_h;
+                let mon_area = mon_w * mon_h;
+                // Tolerance: 1% slack on each dimension, plus the window must
+                // start at-or-before the monitor origin.
+                let near_full = win_area * 100 >= mon_area * 99
+                    && rect.left <= mi.rcMonitor.left + 4
+                    && rect.top <= mi.rcMonitor.top + 4
+                    && rect.right >= mi.rcMonitor.right - 4
+                    && rect.bottom >= mi.rcMonitor.bottom - 4;
+                near_full
             }
         }
 
@@ -200,52 +235,75 @@ mod win32_impl {
     struct EnumContext {
         results: Vec<WindowEntry>,
         own_pid: u32,
+        /// Cache PID → process name across the enumeration cycle. Opening a
+        /// process handle per-window is the dominant cost when many windows
+        /// share a PID (browser tabs, IDE child windows).
+        pid_name_cache: std::collections::HashMap<u32, Option<String>>,
+    }
+
+    /// Query DWM cloaked attribute. Returns true if the window is cloaked for
+    /// any reason — UWP suspended, on another virtual desktop, or hidden by
+    /// the shell. Returns false on any failure (be lenient).
+    unsafe fn is_window_cloaked(hwnd: HWND) -> bool {
+        use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+        let mut cloaked: u32 = 0;
+        let res = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+        res.is_ok() && cloaked != 0
     }
 
     unsafe extern "system" fn enum_window_callback_v2(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let ctx = &mut *(lparam.0 as *mut EnumContext);
 
-        // Skip invisible windows
+        // SAFETY block 1: cheap visibility filters — no allocations, no handles.
         if !IsWindowVisible(hwnd).as_bool() {
             return TRUE;
         }
-
-        // Skip minimized windows
         if IsIconic(hwnd).as_bool() {
             return TRUE;
         }
 
-        // Get window title
+        // SAFETY block 2: title read. Buffer length matches GetWindowTextW spec.
         let mut title_buf = [0u16; 512];
         let len = GetWindowTextW(hwnd, &mut title_buf);
         if len == 0 {
-            return TRUE; // no title
+            return TRUE; // no title — skip
         }
         let title = String::from_utf16_lossy(&title_buf[..len as usize]);
 
-        // Get window class
+        // SAFETY block 3: class name read.
         let mut class_buf = [0u16; 256];
         let class_len = GetClassNameW(hwnd, &mut class_buf);
         let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
 
-        // Get PID
+        // SAFETY block 4: PID lookup (`pid` is initialized to 0 and overwritten).
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
 
-        // Get process name
-        let process_name = match get_process_name_from_pid(pid) {
+        // PID → name with intra-cycle cache. Cache miss opens the process handle.
+        let process_name = match ctx
+            .pid_name_cache
+            .entry(pid)
+            .or_insert_with(|| get_process_name_from_pid(pid))
+            .clone()
+        {
             Some(name) => name,
             None => return TRUE, // can't identify — skip
         };
 
-        // Check extended style
+        // SAFETY block 5: style + ownership lookups operate on a valid HWND.
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
-
-        // Check if owned
         let is_owned = GetWindow(hwnd, GW_OWNER)
             .map(|o| !o.0.is_null())
             .unwrap_or(false);
+
+        // SAFETY block 6: DWM cloaked query. Documented to be safe on any HWND.
+        let is_cloaked = is_window_cloaked(hwnd);
 
         let info = WindowInfo {
             process_name,
@@ -254,6 +312,11 @@ mod win32_impl {
             is_tool_window,
             is_owned,
             own_pid: pid == ctx.own_pid,
+            is_cloaked,
+            // Virtual-desktop hiding manifests as DWM_CLOAKED_SHELL on Win10/11,
+            // so the cloaked check already covers off-desktop windows. We keep
+            // the field for completeness and default true here.
+            is_on_current_desktop: true,
         };
 
         ctx.results.push(WindowEntry {
@@ -423,6 +486,7 @@ pub mod mock {
     #[derive(Default, Clone)]
     pub struct MockWindowApi {
         pub foreground_process: Arc<Mutex<Option<String>>>,
+        pub foreground_hwnd: Arc<Mutex<isize>>,
         pub windows: Arc<Mutex<Vec<WindowEntry>>>,
         pub minimized: Arc<Mutex<Vec<isize>>>,
         pub closed: Arc<Mutex<Vec<isize>>>,
@@ -438,6 +502,10 @@ pub mod mock {
 
         pub fn set_foreground(&self, process: Option<&str>) {
             *self.foreground_process.lock().unwrap() = process.map(|s| s.to_string());
+        }
+
+        pub fn set_foreground_hwnd(&self, hwnd: isize) {
+            *self.foreground_hwnd.lock().unwrap() = hwnd;
         }
 
         pub fn set_windows(&self, entries: Vec<WindowEntry>) {
@@ -466,6 +534,10 @@ pub mod mock {
     impl WindowApi for MockWindowApi {
         fn get_foreground_process(&self) -> Option<String> {
             self.foreground_process.lock().unwrap().clone()
+        }
+
+        fn get_foreground_hwnd(&self) -> isize {
+            *self.foreground_hwnd.lock().unwrap()
         }
 
         fn enumerate_visible_windows(&self) -> Vec<WindowEntry> {

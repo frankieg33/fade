@@ -50,12 +50,32 @@ pub struct WindowInfo {
     pub is_tool_window: bool, // WS_EX_TOOLWINDOW style
     pub is_owned: bool,       // has an owner window (modal/popup/dialog)
     pub own_pid: bool,        // belongs to the fade process
+    /// True if DWM reports the window as cloaked (hidden by shell/UWP/virtual
+    /// desktop). Cloaked windows are invisible to the user even though
+    /// IsWindowVisible() returns true, so we must skip them.
+    pub is_cloaked: bool,
+    /// True if the window belongs to the user's current virtual desktop.
+    /// Virtual-desktop resolution requires COM and may fail; default true
+    /// when the query cannot be made so we don't drop legitimate windows.
+    pub is_on_current_desktop: bool,
 }
 
 /// Returns true if this window should be filtered out (is a system window).
 pub fn is_system_window(info: &WindowInfo) -> bool {
     // Always filter our own windows
     if info.own_pid {
+        return true;
+    }
+
+    // Cloaked windows are invisible to the user (UWP background, virtual-desktop
+    // residue, shell-hidden surfaces). Acting on them is always wrong.
+    if info.is_cloaked {
+        return true;
+    }
+
+    // Windows on other virtual desktops must not be touched — the user isn't
+    // looking at them and idle accounting on the active desktop doesn't apply.
+    if !info.is_on_current_desktop {
         return true;
     }
 
@@ -100,7 +120,23 @@ mod tests {
             is_tool_window: false,
             is_owned: false,
             own_pid: false,
+            is_cloaked: false,
+            is_on_current_desktop: true,
         }
+    }
+
+    #[test]
+    fn test_cloaked_window_filtered() {
+        let mut w = make_window("chrome.exe", "Background tab", "Chrome_WidgetWin_1");
+        w.is_cloaked = true;
+        assert!(is_system_window(&w));
+    }
+
+    #[test]
+    fn test_off_desktop_window_filtered() {
+        let mut w = make_window("chrome.exe", "Other desktop", "Chrome_WidgetWin_1");
+        w.is_on_current_desktop = false;
+        assert!(is_system_window(&w));
     }
 
     #[test]

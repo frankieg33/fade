@@ -135,11 +135,28 @@ pub struct Config {
     pub app_rule: Vec<AppRule>,
 }
 
+/// Where a resolved rule came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleSource {
+    AppRule,
+    Bucket,
+}
+
+impl RuleSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RuleSource::AppRule => "app_rule",
+            RuleSource::Bucket => "bucket",
+        }
+    }
+}
+
 /// Result of resolving what action to take for a given process.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedRule {
     pub timeout_mins: u64,
     pub action: Action,
+    pub source: RuleSource,
 }
 
 impl Config {
@@ -161,6 +178,7 @@ impl Config {
                     return Some(ResolvedRule {
                         timeout_mins: rule.timeout_mins,
                         action: rule.action.clone(),
+                        source: RuleSource::AppRule,
                     });
                 } else {
                     return None;
@@ -178,6 +196,7 @@ impl Config {
                     return Some(ResolvedRule {
                         timeout_mins: bucket.timeout_mins,
                         action: bucket.action.clone(),
+                        source: RuleSource::Bucket,
                     });
                 }
             }
@@ -329,19 +348,40 @@ impl Config {
     }
 
     /// Save config to the standard path.
+    ///
+    /// Durability: write to temp file, fsync the file's contents, rename over
+    /// the destination, then fsync the parent directory so the rename itself
+    /// survives a crash/power-loss before the kernel flushes its dirent cache.
     pub fn save(&self) -> Result<(), String> {
+        use std::io::Write;
         let path = config_path();
         let contents =
             toml::to_string_pretty(self).map_err(|e| format!("Serialize error: {}", e))?;
 
-        // Write to temp file, then rename for atomic save
         let tmp_path = path.with_extension("toml.tmp");
-        std::fs::write(&tmp_path, &contents).map_err(|e| format!("Write error: {}", e))?;
+        {
+            let mut f = std::fs::File::create(&tmp_path)
+                .map_err(|e| format!("Create temp error: {}", e))?;
+            f.write_all(contents.as_bytes())
+                .map_err(|e| format!("Write error: {}", e))?;
+            // sync_all flushes both data and metadata before rename.
+            if let Err(e) = f.sync_all() {
+                log::warn!("config temp sync_all failed: {}", e);
+            }
+        }
         std::fs::rename(&tmp_path, &path).map_err(|e| {
-            // Clean up temp file on rename failure
             let _ = std::fs::remove_file(&tmp_path);
             format!("Rename error: {}", e)
         })?;
+
+        // Best-effort directory fsync so the rename is durable too. Not all
+        // platforms expose directory sync via std (Windows in particular is a
+        // no-op here) — failures are logged but never bubbled.
+        if let Some(parent) = path.parent() {
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
 
         log::info!("Saved config to {}", path.display());
         Ok(())
