@@ -42,5 +42,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" "fade-${GITHUB_REF_NAME}-windows-x86_64.zip" \
-            --generate-notes
+          ZIP="fade-${GITHUB_REF_NAME}-windows-x86_64.zip"
+          # Idempotent: if the release for this tag already exists (e.g. a
+          # previous run failed mid-upload), attach/replace the asset on it
+          # instead of failing.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "$ZIP" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "$ZIP" --generate-notes
+          fi
