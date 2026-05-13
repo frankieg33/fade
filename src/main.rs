@@ -36,7 +36,9 @@ const POST_SHOW_REPAINT_DELAY_MS: u64 = 50;
 /// property change is what marks the window dirty for the Slint software
 /// renderer — request_redraw on its own is not enough after a long hide.
 fn force_repaint(w: &SettingsWindow) {
-    w.set_redraw_tick((w.get_redraw_tick() + 1) % REDRAW_TICK_MODULO);
+    // wrapping_add defends against the (unreachable but cheap-to-prevent)
+    // case where the property was set out of band to a value near i32::MAX.
+    w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1) % REDRAW_TICK_MODULO);
     w.window().request_redraw();
 }
 
