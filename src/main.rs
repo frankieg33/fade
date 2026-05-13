@@ -186,21 +186,21 @@ fn main() {
                     // can otherwise paint a stale framebuffer until the user
                     // moves the mouse over it — only the property change marks
                     // the window dirty; request_redraw alone is not enough.
-                    w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
+                    // Modulo keeps the sentinel bounded: the property feeds a
+                    // sentinel opacity (`tick * 0.0001 + 0.0001`) in the Slint
+                    // view, and we don't want it ever to approach 1.0.
+                    w.set_redraw_tick((w.get_redraw_tick() + 1) % 1000);
                     w.window().request_redraw();
                     // Schedule a second redraw shortly after the OS has
                     // actually realized/sized the window, in case the first
                     // one happened before winit finished its show sequence.
                     let weak = w.as_weak();
-                    slint::Timer::single_shot(
-                        std::time::Duration::from_millis(50),
-                        move || {
-                            if let Some(w) = weak.upgrade() {
-                                w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
-                                w.window().request_redraw();
-                            }
-                        },
-                    );
+                    slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+                        if let Some(w) = weak.upgrade() {
+                            w.set_redraw_tick((w.get_redraw_tick() + 1) % 1000);
+                            w.window().request_redraw();
+                        }
+                    });
                     visible_for_tray.store(true, Ordering::Relaxed);
                 }
             }
@@ -248,7 +248,9 @@ fn main() {
                 // forces Slint to mark the window dirty (so the software renderer
                 // can't keep showing a stale framebuffer), and request_redraw
                 // wakes the winit event loop to actually paint.
-                w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
+                // Modulo keeps the sentinel bounded over multi-day uptime —
+                // see ShowSettings handler for rationale.
+                w.set_redraw_tick((w.get_redraw_tick() + 1) % 1000);
                 w.window().request_redraw();
             }
         },
