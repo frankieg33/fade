@@ -298,9 +298,19 @@ mod win32_impl {
         // SAFETY block 5: style + ownership lookups operate on a valid HWND.
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
         let is_tool_window = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
-        let is_owned = GetWindow(hwnd, GW_OWNER)
-            .map(|o| !o.0.is_null())
-            .unwrap_or(false);
+        let owner_hwnd = GetWindow(hwnd, GW_OWNER)
+            .ok()
+            .filter(|o| !o.0.is_null());
+        let is_owned = owner_hwnd.is_some();
+        // A true application-modal dialog disables its owner (the parent goes
+        // grey and can't be clicked). Floating helpers — find/replace, color
+        // pickers, tool palettes — leave the owner enabled. We only want to
+        // shield the parent process from idle actions when there's a real
+        // modal blocking interaction.
+        let disables_owner = match owner_hwnd {
+            Some(owner) => !IsWindowEnabled(owner).as_bool(),
+            None => false,
+        };
 
         // SAFETY block 6: DWM cloaked query. Documented to be safe on any HWND.
         let is_cloaked = is_window_cloaked(hwnd);
@@ -311,6 +321,7 @@ mod win32_impl {
             class_name,
             is_tool_window,
             is_owned,
+            disables_owner,
             own_pid: pid == ctx.own_pid,
             is_cloaked,
             // Virtual-desktop hiding manifests as DWM_CLOAKED_SHELL on Win10/11,

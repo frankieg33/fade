@@ -283,16 +283,17 @@ impl<W: WindowApi> Monitor<W> {
             }
         };
 
-        // PIDs that currently have at least one owned (modal/popup) window visible.
-        // Acting on the parent of an active modal can interrupt save/auth dialogs,
-        // so we skip the entire process if any of its windows is owned. We must
-        // NOT pre-filter with is_system_window here: legitimate dialogs (empty
-        // title, tool-style frame) frequently look "system-like" but are exactly
-        // the modal flows this guard exists to protect.
-        let pids_with_owned: HashSet<u32> = self
+        // PIDs that currently have a true application-modal dialog open — i.e.
+        // an owned window whose owner has been disabled by Windows. Acting on
+        // the parent of an active modal can interrupt save/auth dialogs, so we
+        // skip the entire process. Owned-but-not-disabling helpers (find /
+        // replace, color picker, tool palettes) don't qualify. We must NOT
+        // pre-filter with is_system_window here: legitimate dialogs frequently
+        // look "system-like" but are exactly what this guard exists to protect.
+        let pids_with_modal: HashSet<u32> = self
             .current_windows
             .iter()
-            .filter(|e| e.info.is_owned)
+            .filter(|e| e.info.disables_owner)
             .map(|e| e.pid)
             .collect();
 
@@ -314,12 +315,12 @@ impl<W: WindowApi> Monitor<W> {
                 continue;
             }
 
-            // Skip windows whose process currently has an owned window visible.
-            // The owned window may be an active modal dialog; closing the parent
-            // would tear it down mid-interaction.
-            if pids_with_owned.contains(&entry.pid) {
+            // Skip windows whose process currently has a real modal dialog
+            // visible (an owned window that disables its parent). Closing the
+            // parent would tear the modal down mid-interaction.
+            if pids_with_modal.contains(&entry.pid) {
                 log::debug!(
-                    "Skipping {} ({}) — process has an owned/modal window open",
+                    "Skipping {} ({}) — process has an active modal dialog",
                     entry.info.process_name,
                     entry.info.title
                 );
@@ -554,6 +555,7 @@ mod tests {
                 class_name: "AppWindow".into(),
                 is_tool_window: false,
                 is_owned: false,
+                disables_owner: false,
                 own_pid: false,
                 is_cloaked: false,
                 is_on_current_desktop: true,
@@ -836,6 +838,7 @@ mod tests {
                 class_name: "DWM".into(),
                 is_tool_window: false,
                 is_owned: false,
+                disables_owner: false,
                 own_pid: false,
                 is_cloaked: false,
                 is_on_current_desktop: true,
@@ -1099,6 +1102,7 @@ mod tests {
         let parent = make_entry(10, "notepad.exe", "Untitled - Notepad");
         let mut modal = make_entry(11, "notepad.exe", "Save As");
         modal.info.is_owned = true;
+        modal.info.disables_owner = true;
         // Same PID — they belong to the same process instance.
         modal.pid = parent.pid;
 
@@ -1112,6 +1116,43 @@ mod tests {
 
         assert!(mock.get_closed().is_empty());
         assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_parent_acted_on_with_floating_helper() {
+        // An owned window that does NOT disable its parent (find/replace,
+        // color picker, tool palette) must not shield the parent from idle
+        // actions — Windows leaves the parent fully clickable.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Minimize,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(20, "notepad.exe", "Untitled - Notepad");
+        let mut helper = make_entry(21, "notepad.exe", "Find");
+        helper.info.is_owned = true;
+        helper.info.disables_owner = false;
+        helper.pid = parent.pid;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, helper]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        // Prime the idle clock so timeout=0 acts on the second poll.
+        monitor.poll();
+        monitor.poll();
+
+        assert!(!mock.get_minimized().is_empty());
     }
 
     #[test]
