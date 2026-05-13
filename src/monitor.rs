@@ -129,19 +129,25 @@ impl<W: WindowApi> Monitor<W> {
 
         // 0. Detect newly managed processes and reset their idle clock.
         // This prevents immediate action when a rule is added for an already-open window.
-        let mut currently_managed = HashSet::new();
+        // Must match resolve_process semantics: a disabled AppRule explicitly
+        // excludes its process, even if an enabled bucket would otherwise
+        // include it. Otherwise re-enabling that AppRule later wouldn't be
+        // detected as "newly managed" (the process was in previously_managed
+        // via the bucket) and an already-idle window could be acted on
+        // immediately without the grace period.
+        let mut candidates: HashSet<String> = HashSet::new();
         for rule in &config.app_rule {
-            if rule.enabled {
-                currently_managed.insert(rule.process.to_lowercase());
-            }
+            candidates.insert(rule.process.to_lowercase());
         }
         for bucket in &config.bucket {
-            if bucket.enabled {
-                for proc in &bucket.processes {
-                    currently_managed.insert(proc.to_lowercase());
-                }
+            for proc in &bucket.processes {
+                candidates.insert(proc.to_lowercase());
             }
         }
+        let currently_managed: HashSet<String> = candidates
+            .into_iter()
+            .filter(|p| config.resolve_process(p).is_some())
+            .collect();
         let mut newly_managed = HashSet::new();
         if let Ok(mut timestamps) = self.foreground_timestamps.lock() {
             for proc in &currently_managed {
