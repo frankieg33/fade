@@ -313,22 +313,27 @@ impl<W: WindowApi> Monitor<W> {
         for action in actions {
             match action.action {
                 Action::Minimize => {
+                    // Info-level log avoids the window title; titles can leak
+                    // sensitive activity (document names, URLs, chat subjects)
+                    // into the on-disk Windows release log. The full title is
+                    // still recorded in the in-memory Activity log for the UI
+                    // and is available at debug level for troubleshooting.
                     log::info!(
-                        "Minimizing: {} ({}) — idle {:.0}s",
+                        "Minimizing: {} — idle {:.0}s",
                         action.process,
-                        action.title,
                         action.idle_secs
                     );
+                    log::debug!("Minimizing title: {}", action.title);
                     self.api.minimize_window(action.hwnd);
                     self.record_action(&action.process, &action.title, Action::Minimize);
                 }
                 Action::Close => {
                     log::info!(
-                        "Closing: {} ({}) — idle {:.0}s",
+                        "Closing: {} — idle {:.0}s",
                         action.process,
-                        action.title,
                         action.idle_secs
                     );
+                    log::debug!("Closing title: {}", action.title);
                     self.api.close_window(action.hwnd);
                     self.record_action(&action.process, &action.title, Action::Close);
                 }

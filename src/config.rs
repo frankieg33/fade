@@ -149,13 +149,19 @@ impl Config {
     pub fn resolve_process(&self, process: &str) -> Option<ResolvedRule> {
         let process_lower = process.to_lowercase();
 
-        // Check app_rules first (highest priority)
+        // Check app_rules first (highest priority). A matching rule — even a
+        // disabled one — is authoritative: a disabled AppRule explicitly
+        // excludes the process from any bucket inheritance below.
         for rule in &self.app_rule {
-            if rule.enabled && rule.process.to_lowercase() == process_lower {
-                return Some(ResolvedRule {
-                    timeout_mins: rule.timeout_mins,
-                    action: rule.action.clone(),
-                });
+            if rule.process.to_lowercase() == process_lower {
+                if rule.enabled {
+                    return Some(ResolvedRule {
+                        timeout_mins: rule.timeout_mins,
+                        action: rule.action.clone(),
+                    });
+                } else {
+                    return None;
+                }
             }
         }
 
@@ -277,6 +283,45 @@ impl Config {
         }
         for bucket in &mut self.bucket {
             bucket.timeout_mins = bucket.timeout_mins.clamp(1, MAX_TIMEOUT);
+        }
+
+        // Window geometry: refuse absurd persisted sizes/positions that could
+        // make the settings window unusable (or wedge the renderer) after a
+        // tampered config. Anything outside these bounds is dropped so the
+        // window falls back to its preferred size/position.
+        const MIN_W: u32 = 320;
+        const MAX_W: u32 = 8192;
+        const MIN_H: u32 = 240;
+        const MAX_H: u32 = 8192;
+        const MIN_POS: i32 = -32_000;
+        const MAX_POS: i32 = 32_000;
+        if let Some(w) = self.general.window_width {
+            if !(MIN_W..=MAX_W).contains(&w) {
+                self.general.window_width = None;
+            }
+        }
+        if let Some(h) = self.general.window_height {
+            if !(MIN_H..=MAX_H).contains(&h) {
+                self.general.window_height = None;
+            }
+        }
+        if let Some(x) = self.general.window_x {
+            if !(MIN_POS..=MAX_POS).contains(&x) {
+                self.general.window_x = None;
+            }
+        }
+        if let Some(y) = self.general.window_y {
+            if !(MIN_POS..=MAX_POS).contains(&y) {
+                self.general.window_y = None;
+            }
+        }
+
+        // Activity splitter height: matches the UI drag clamp. Non-finite or
+        // out-of-range values are dropped rather than passed through to Slint.
+        if let Some(h) = self.general.activity_current_height {
+            if !h.is_finite() || !(80.0..=800.0).contains(&h) {
+                self.general.activity_current_height = None;
+            }
         }
     }
 
@@ -490,6 +535,68 @@ mod tests {
         };
 
         assert!(config.resolve_process("chrome.exe").is_none());
+    }
+
+    #[test]
+    fn test_disabled_rule_suppresses_bucket_inheritance() {
+        // A disabled AppRule for a process must act as an explicit exclusion:
+        // the process should not fall through to an enabled bucket that also
+        // lists it. Without this, unchecking an app inside an enabled bucket
+        // (or assigning a disabled ungrouped rule into one) silently does
+        // nothing.
+        let config = Config {
+            general: General::default(),
+            bucket: vec![Bucket {
+                name: "B".into(),
+                processes: vec!["chrome.exe".into()],
+                timeout_mins: 15,
+                action: Action::Close,
+                enabled: true,
+                expanded: true,
+                icon: None,
+            }],
+            app_rule: vec![AppRule {
+                process: "chrome.exe".into(),
+                timeout_mins: 15,
+                action: Action::Close,
+                enabled: false,
+                icon: None,
+                customized: false,
+            }],
+        };
+        assert!(config.resolve_process("chrome.exe").is_none());
+    }
+
+    #[test]
+    fn test_clamp_drops_absurd_geometry() {
+        let mut config = Config::default_config();
+        config.general.window_width = Some(u32::MAX);
+        config.general.window_height = Some(0);
+        config.general.window_x = Some(i32::MIN);
+        config.general.window_y = Some(i32::MAX);
+        config.general.activity_current_height = Some(f32::INFINITY);
+        config.clamp_ranges();
+        assert_eq!(config.general.window_width, None);
+        assert_eq!(config.general.window_height, None);
+        assert_eq!(config.general.window_x, None);
+        assert_eq!(config.general.window_y, None);
+        assert_eq!(config.general.activity_current_height, None);
+    }
+
+    #[test]
+    fn test_clamp_preserves_sane_geometry() {
+        let mut config = Config::default_config();
+        config.general.window_width = Some(1024);
+        config.general.window_height = Some(768);
+        config.general.window_x = Some(100);
+        config.general.window_y = Some(50);
+        config.general.activity_current_height = Some(200.0);
+        config.clamp_ranges();
+        assert_eq!(config.general.window_width, Some(1024));
+        assert_eq!(config.general.window_height, Some(768));
+        assert_eq!(config.general.window_x, Some(100));
+        assert_eq!(config.general.window_y, Some(50));
+        assert_eq!(config.general.activity_current_height, Some(200.0));
     }
 
     #[test]
