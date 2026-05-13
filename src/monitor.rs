@@ -285,11 +285,14 @@ impl<W: WindowApi> Monitor<W> {
 
         // PIDs that currently have at least one owned (modal/popup) window visible.
         // Acting on the parent of an active modal can interrupt save/auth dialogs,
-        // so we skip the entire process if any of its windows is owned.
+        // so we skip the entire process if any of its windows is owned. We must
+        // NOT pre-filter with is_system_window here: legitimate dialogs (empty
+        // title, tool-style frame) frequently look "system-like" but are exactly
+        // the modal flows this guard exists to protect.
         let pids_with_owned: HashSet<u32> = self
             .current_windows
             .iter()
-            .filter(|e| e.info.is_owned && !filter::is_system_window(&e.info))
+            .filter(|e| e.info.is_owned)
             .map(|e| e.pid)
             .collect();
 
