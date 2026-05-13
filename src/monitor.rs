@@ -160,9 +160,8 @@ impl<W: WindowApi> Monitor<W> {
         // process as freshly active so we don't immediately act on something
         // the user is about to come back to.
         let interval_secs = config.general.polling_interval_secs.max(1);
-        let threshold = Duration::from_secs(
-            (interval_secs * POLL_GAP_FACTOR as u64).max(POLL_GAP_FLOOR_SECS),
-        );
+        let threshold =
+            Duration::from_secs((interval_secs * POLL_GAP_FACTOR as u64).max(POLL_GAP_FLOOR_SECS));
         let resumed_from_gap = match self.last_poll_at {
             Some(prev) => now.duration_since(prev) > threshold,
             None => false,
@@ -422,11 +421,7 @@ impl<W: WindowApi> Monitor<W> {
                 action.rule_source.as_str(),
                 action.timeout_mins,
             );
-            log::debug!(
-                "{verb} hwnd={:#x} title={:?}",
-                action.hwnd,
-                action.title
-            );
+            log::debug!("{verb} hwnd={:#x} title={:?}", action.hwnd, action.title);
             match action.action {
                 Action::Minimize => self.api.minimize_window(action.hwnd),
                 Action::Close => self.api.close_window(action.hwnd),

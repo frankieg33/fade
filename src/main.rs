@@ -125,17 +125,11 @@ fn main() {
     // panicking thread held them) keep the daemon alive with safe fallbacks
     // rather than crashing the tray.
     {
-        let cfg = config
-            .read()
-            .map(|g| (*g).clone())
-            .unwrap_or_else(|_| {
-                log::error!("Config lock poisoned on startup — using defaults for initial GUI");
-                Config::default_config()
-            });
-        let query = search_state
-            .read()
-            .map(|s| s.clone())
-            .unwrap_or_default();
+        let cfg = config.read().map(|g| (*g).clone()).unwrap_or_else(|_| {
+            log::error!("Config lock poisoned on startup — using defaults for initial GUI");
+            Config::default_config()
+        });
+        let query = search_state.read().map(|s| s.clone()).unwrap_or_default();
         update_gui_from_config(&window, &cfg, &query);
     }
 
