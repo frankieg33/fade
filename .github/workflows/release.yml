@@ -6,13 +6,16 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-windows:
     runs-on: ubuntu-latest
+    permissions:
+      # `gh release create` in the publish step needs write access to Releases.
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
 
       - name: Install mingw-w64 + fontconfig
         run: |
@@ -20,14 +23,8 @@ jobs:
           sudo apt-get install -y mingw-w64 pkg-config libfontconfig1-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-${{ runner.os }}
+        run: |
+          rustup target add x86_64-pc-windows-gnu
 
       - name: Build release
         run: cargo build --release --target x86_64-pc-windows-gnu
@@ -40,10 +37,19 @@ jobs:
           cp README.md "$STAGE/" 2>/dev/null || true
           cp -r assets "$STAGE/"
           zip -r "${STAGE}.zip" "$STAGE"
-          echo "ASSET=${STAGE}.zip" >> "$GITHUB_ENV"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.ASSET }}
-          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ZIP="fade-${GITHUB_REF_NAME}-windows-x86_64.zip"
+          # Idempotent: if the release for this tag already exists (e.g. a
+          # previous run failed mid-upload, possibly leaving it as a draft),
+          # attach/replace the asset and ensure it is published.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "$ZIP" --clobber
+            # No-op when the release is already public; flips a stuck draft.
+            gh release edit "${GITHUB_REF_NAME}" --draft=false
+          else
+            gh release create "${GITHUB_REF_NAME}" "$ZIP" --generate-notes
+          fi
