@@ -44,10 +44,12 @@ jobs:
         run: |
           ZIP="fade-${GITHUB_REF_NAME}-windows-x86_64.zip"
           # Idempotent: if the release for this tag already exists (e.g. a
-          # previous run failed mid-upload), attach/replace the asset on it
-          # instead of failing.
+          # previous run failed mid-upload, possibly leaving it as a draft),
+          # attach/replace the asset and ensure it is published.
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "$ZIP" --clobber
+            # No-op when the release is already public; flips a stuck draft.
+            gh release edit "${GITHUB_REF_NAME}" --draft=false
           else
             gh release create "${GITHUB_REF_NAME}" "$ZIP" --generate-notes
           fi
