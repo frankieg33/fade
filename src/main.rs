@@ -181,7 +181,26 @@ fn main() {
                         refresh_activity_log(&w, &cfg, &log_for_tray);
                     }
                     w.show().ok();
+                    // Force a full repaint after re-showing from the tray. A
+                    // long-hidden Slint window backed by the software renderer
+                    // can otherwise paint a stale framebuffer until the user
+                    // moves the mouse over it — only the property change marks
+                    // the window dirty; request_redraw alone is not enough.
+                    w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
                     w.window().request_redraw();
+                    // Schedule a second redraw shortly after the OS has
+                    // actually realized/sized the window, in case the first
+                    // one happened before winit finished its show sequence.
+                    let weak = w.as_weak();
+                    slint::Timer::single_shot(
+                        std::time::Duration::from_millis(50),
+                        move || {
+                            if let Some(w) = weak.upgrade() {
+                                w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
+                                w.window().request_redraw();
+                            }
+                        },
+                    );
                     visible_for_tray.store(true, Ordering::Relaxed);
                 }
             }
