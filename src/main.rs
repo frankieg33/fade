@@ -22,6 +22,26 @@ use winapi::Win32Api;
 
 slint::include_modules!();
 
+/// Sentinel-property bumps cycle through this range. The Slint view turns
+/// `redraw_tick` into an opacity (`tick * 0.0001 + 0.0001`), so values past
+/// ~10k saturate and stop being treated as real changes. 1000 stays well
+/// below saturation while every bump still produces a unique value.
+const REDRAW_TICK_MODULO: i32 = 1000;
+
+/// Delay before the follow-up repaint after `w.show()`. Long enough for
+/// winit to have realized the window, short enough to be imperceptible.
+const POST_SHOW_REPAINT_DELAY_MS: u64 = 50;
+
+/// Bump the `redraw_tick` sentinel and ask the window to redraw. The
+/// property change is what marks the window dirty for the Slint software
+/// renderer — request_redraw on its own is not enough after a long hide.
+fn force_repaint(w: &SettingsWindow) {
+    // wrapping_add defends against the (unreachable but cheap-to-prevent)
+    // case where the property was set out of band to a value near i32::MAX.
+    w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1) % REDRAW_TICK_MODULO);
+    w.window().request_redraw();
+}
+
 /// Initialize the logger. In console builds (debug + non-Windows), env_logger
 /// writes to stderr like before. In the Windows release build there is no
 /// console attached, so logs are appended to `fade.log` next to the executable
@@ -181,7 +201,20 @@ fn main() {
                         refresh_activity_log(&w, &cfg, &log_for_tray);
                     }
                     w.show().ok();
-                    w.window().request_redraw();
+                    // A long-hidden Slint window backed by the software
+                    // renderer can paint a stale framebuffer on the first
+                    // frame after show — repaint now, and again once winit
+                    // has finished realizing the window.
+                    force_repaint(&w);
+                    let weak = w.as_weak();
+                    slint::Timer::single_shot(
+                        std::time::Duration::from_millis(POST_SHOW_REPAINT_DELAY_MS),
+                        move || {
+                            if let Some(w) = weak.upgrade() {
+                                force_repaint(&w);
+                            }
+                        },
+                    );
                     visible_for_tray.store(true, Ordering::Relaxed);
                 }
             }
@@ -225,12 +258,7 @@ fn main() {
                     refresh_current_apps(&w, &cfg, &snapshot_for_gui);
                     refresh_activity_log(&w, &cfg, &log_for_gui);
                 }
-                // Bump the redraw sentinel + request a redraw. The property change
-                // forces Slint to mark the window dirty (so the software renderer
-                // can't keep showing a stale framebuffer), and request_redraw
-                // wakes the winit event loop to actually paint.
-                w.set_redraw_tick(w.get_redraw_tick().wrapping_add(1));
-                w.window().request_redraw();
+                force_repaint(&w);
             }
         },
     );
