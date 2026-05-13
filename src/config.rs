@@ -147,15 +147,16 @@ impl Config {
     /// App rules take priority over bucket membership.
     /// Returns None if the process is not managed.
     pub fn resolve_process(&self, process: &str) -> Option<ResolvedRule> {
-        // Process names on Windows are ASCII-compatible (.exe), so
-        // eq_ignore_ascii_case is correct and avoids per-iteration String
-        // allocations on a hot polling path.
+        // Use Unicode-aware lowercasing rather than eq_ignore_ascii_case:
+        // Windows executable names can contain non-ASCII letters, and a rule
+        // like "Åpp.exe" must still match an "åpp.exe" process.
+        let process_lower = process.to_lowercase();
 
         // Check app_rules first (highest priority). A matching rule — even a
         // disabled one — is authoritative: a disabled AppRule explicitly
         // excludes the process from any bucket inheritance below.
         for rule in &self.app_rule {
-            if rule.process.eq_ignore_ascii_case(process) {
+            if rule.process.to_lowercase() == process_lower {
                 if rule.enabled {
                     return Some(ResolvedRule {
                         timeout_mins: rule.timeout_mins,
@@ -173,7 +174,7 @@ impl Config {
                 continue;
             }
             for proc in &bucket.processes {
-                if proc.eq_ignore_ascii_case(process) {
+                if proc.to_lowercase() == process_lower {
                     return Some(ResolvedRule {
                         timeout_mins: bucket.timeout_mins,
                         action: bucket.action.clone(),
