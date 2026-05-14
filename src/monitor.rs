@@ -1,7 +1,7 @@
 /// Core idle-detection polling loop.
 /// Tracks which processes were last in the foreground and triggers
 /// minimize/close actions when idle timeouts are exceeded.
-use crate::config::{Action, Config};
+use crate::config::{Action, Config, RuleSource};
 use crate::filter;
 use crate::winapi::{WindowApi, WindowEntry};
 use std::collections::HashMap;
@@ -37,6 +37,13 @@ pub struct ActionLogEntry {
     pub action: Action,
     /// Seconds since UNIX epoch (for display formatting on the GUI side).
     pub timestamp: u64,
+    /// Whether the rule that triggered this action came from an app_rule or a
+    /// bucket. Persisted for debugging; the GUI does not currently surface it.
+    #[allow(dead_code)]
+    pub rule_source: RuleSource,
+    /// Timeout (minutes) that was in effect when the action fired.
+    #[allow(dead_code)]
+    pub timeout_mins: u64,
 }
 
 /// Shared ring-buffer of recent actions. Most-recent first.
@@ -68,7 +75,18 @@ pub struct Monitor<W: WindowApi> {
     process_start_cache: HashMap<u32, Option<std::time::SystemTime>>,
     /// Ring-buffer of recent actions for the Activity GUI tab.
     action_log: ActionLog,
+    /// Instant of the previous successful poll. Used to detect resume-from-sleep
+    /// and other monotonic-clock gaps so we don't immediately fire actions
+    /// across a system suspend/lock interval.
+    last_poll_at: Option<Instant>,
 }
+
+/// If the gap between two polls exceeds the expected interval by more than
+/// this factor (e.g. >5× the poll interval), assume the system suspended,
+/// locked, or hibernated and rebase idle timestamps to "now". This prevents
+/// surprise closes the instant the user unlocks.
+const POLL_GAP_FACTOR: u32 = 5;
+const POLL_GAP_FLOOR_SECS: u64 = 60;
 
 impl<W: WindowApi> Monitor<W> {
     pub fn new(
@@ -90,10 +108,18 @@ impl<W: WindowApi> Monitor<W> {
             first_seen: HashMap::new(),
             process_start_cache: HashMap::new(),
             action_log,
+            last_poll_at: None,
         }
     }
 
-    fn record_action(&self, process: &str, title: &str, action: Action) {
+    fn record_action(
+        &self,
+        process: &str,
+        title: &str,
+        action: Action,
+        rule_source: RuleSource,
+        timeout_mins: u64,
+    ) {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -104,6 +130,8 @@ impl<W: WindowApi> Monitor<W> {
                 title: title.to_string(),
                 action,
                 timestamp: ts,
+                rule_source,
+                timeout_mins,
             });
             while log.len() > ACTION_LOG_CAPACITY {
                 log.pop_back();
@@ -126,6 +154,30 @@ impl<W: WindowApi> Monitor<W> {
         };
 
         let now = Instant::now();
+
+        // 0a. Detect resume-from-sleep / lock / hibernation: if the gap since
+        // the previous poll dwarfs the expected interval, treat every tracked
+        // process as freshly active so we don't immediately act on something
+        // the user is about to come back to.
+        let interval_secs = config.general.polling_interval_secs.max(1);
+        let threshold =
+            Duration::from_secs((interval_secs * POLL_GAP_FACTOR as u64).max(POLL_GAP_FLOOR_SECS));
+        let resumed_from_gap = match self.last_poll_at {
+            Some(prev) => now.duration_since(prev) > threshold,
+            None => false,
+        };
+        if resumed_from_gap {
+            log::warn!(
+                "Poll gap exceeded {:?}; treating as suspend/resume — rebasing idle timestamps",
+                threshold
+            );
+            if let Ok(mut ts) = self.foreground_timestamps.lock() {
+                for v in ts.values_mut() {
+                    *v = now;
+                }
+            }
+        }
+        self.last_poll_at = Some(now);
 
         // 0. Detect newly managed processes and reset their idle clock.
         // This prevents immediate action when a rule is added for an already-open window.
@@ -216,6 +268,8 @@ impl<W: WindowApi> Monitor<W> {
             title: String,
             action: Action,
             idle_secs: f64,
+            rule_source: RuleSource,
+            timeout_mins: u64,
         }
 
         let mut actions: Vec<PendingAction> = Vec::new();
@@ -229,6 +283,27 @@ impl<W: WindowApi> Monitor<W> {
             }
         };
 
+        // PIDs that currently have a true application-modal dialog open — i.e.
+        // an owned window whose owner has been disabled by Windows. Acting on
+        // the parent of an active modal can interrupt save/auth dialogs, so we
+        // skip the entire process. Owned-but-not-disabling helpers (find /
+        // replace, color picker, tool palettes) don't qualify. We must NOT
+        // pre-filter with is_system_window here: legitimate dialogs frequently
+        // look "system-like" but are exactly what this guard exists to protect.
+        // Include both the dialog's PID and the owner's PID. For most modals
+        // these are the same, but out-of-process modals (shell-hosted picker
+        // dialogs over an app) have distinct PIDs — without the owner's PID
+        // the true parent window would still be eligible for idle actions.
+        let mut pids_with_modal: HashSet<u32> = HashSet::new();
+        for entry in &self.current_windows {
+            if entry.info.disables_owner {
+                pids_with_modal.insert(entry.pid);
+                if let Some(opid) = entry.info.owner_pid {
+                    pids_with_modal.insert(opid);
+                }
+            }
+        }
+
         for entry in &self.current_windows {
             let proc_lower = entry.info.process_name.to_lowercase();
 
@@ -239,6 +314,23 @@ impl<W: WindowApi> Monitor<W> {
 
             // Skip system/filtered windows
             if filter::is_system_window(&entry.info) {
+                continue;
+            }
+
+            // Skip owned windows (modals, popups, dialogs) — they belong to a parent.
+            if entry.info.is_owned {
+                continue;
+            }
+
+            // Skip windows whose process currently has a real modal dialog
+            // visible (an owned window that disables its parent). Closing the
+            // parent would tear the modal down mid-interaction.
+            if pids_with_modal.contains(&entry.pid) {
+                log::debug!(
+                    "Skipping {} ({}) — process has an active modal dialog",
+                    entry.info.process_name,
+                    entry.info.title
+                );
                 continue;
             }
 
@@ -289,7 +381,14 @@ impl<W: WindowApi> Monitor<W> {
                 continue;
             }
 
-            // Double-check it's not now the foreground
+            // Double-check it's not now the foreground (HWND-level — the
+            // process-name check above is conservative for same-process
+            // windows but cannot distinguish two HWNDs sharing a process name).
+            let current_fg_hwnd = self.api.get_foreground_hwnd();
+            if current_fg_hwnd != 0 && current_fg_hwnd == entry.hwnd {
+                new_timestamps.push((proc_lower, Instant::now()));
+                continue;
+            }
             if let Some(current_fg) = self.api.get_foreground_process() {
                 if current_fg.to_lowercase() == proc_lower {
                     new_timestamps.push((proc_lower, Instant::now()));
@@ -303,6 +402,8 @@ impl<W: WindowApi> Monitor<W> {
                 title: entry.info.title.clone(),
                 action: rule.action.clone(),
                 idle_secs: idle_duration.as_secs_f64(),
+                rule_source: rule.source,
+                timeout_mins: rule.timeout_mins,
             });
         }
 
@@ -315,35 +416,34 @@ impl<W: WindowApi> Monitor<W> {
             }
         }
 
-        // Execute actions
+        // Execute actions. Window titles can contain sensitive content
+        // (document names, URLs, draft subject lines) so the info-level log
+        // line omits them; the full title is preserved at debug level and in
+        // the in-memory action log used by the GUI.
         for action in actions {
+            let verb = match action.action {
+                Action::Minimize => "Minimizing",
+                Action::Close => "Closing",
+            };
+            log::info!(
+                "{verb}: {} — idle {:.0}s [source={}, timeout={}m]",
+                action.process,
+                action.idle_secs,
+                action.rule_source.as_str(),
+                action.timeout_mins,
+            );
+            log::debug!("{verb} hwnd={:#x} title={:?}", action.hwnd, action.title);
             match action.action {
-                Action::Minimize => {
-                    // Info-level log avoids the window title; titles can leak
-                    // sensitive activity (document names, URLs, chat subjects)
-                    // into the on-disk Windows release log. The full title is
-                    // still recorded in the in-memory Activity log for the UI
-                    // and is available at debug level for troubleshooting.
-                    log::info!(
-                        "Minimizing: {} — idle {:.0}s",
-                        action.process,
-                        action.idle_secs
-                    );
-                    log::debug!("Minimizing title: {}", action.title);
-                    self.api.minimize_window(action.hwnd);
-                    self.record_action(&action.process, &action.title, Action::Minimize);
-                }
-                Action::Close => {
-                    log::info!(
-                        "Closing: {} — idle {:.0}s",
-                        action.process,
-                        action.idle_secs
-                    );
-                    log::debug!("Closing title: {}", action.title);
-                    self.api.close_window(action.hwnd);
-                    self.record_action(&action.process, &action.title, Action::Close);
-                }
+                Action::Minimize => self.api.minimize_window(action.hwnd),
+                Action::Close => self.api.close_window(action.hwnd),
             }
+            self.record_action(
+                &action.process,
+                &action.title,
+                action.action,
+                action.rule_source,
+                action.timeout_mins,
+            );
         }
 
         // Publish snapshot for GUI
@@ -462,7 +562,11 @@ mod tests {
                 class_name: "AppWindow".into(),
                 is_tool_window: false,
                 is_owned: false,
+                disables_owner: false,
+                owner_pid: None,
                 own_pid: false,
+                is_cloaked: false,
+                is_on_current_desktop: true,
             },
         }
     }
@@ -742,7 +846,11 @@ mod tests {
                 class_name: "DWM".into(),
                 is_tool_window: false,
                 is_owned: false,
+                disables_owner: false,
+                owner_pid: None,
                 own_pid: false,
+                is_cloaked: false,
+                is_on_current_desktop: true,
             },
         }]);
         timestamps.lock().unwrap().insert(
@@ -950,6 +1058,181 @@ mod tests {
         // Second poll: now it should act (idle clock was reset, but timeout=0)
         monitor.poll();
         assert!(!mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_owned_window_not_acted_on() {
+        // An owned (modal/popup) window should never be a direct action target.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let mut owned = make_entry(1, "notepad.exe", "Save As");
+        owned.info.is_owned = true;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![owned]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_parent_skipped_when_owned_modal_exists() {
+        // If a process has an owned/modal window open, the parent window should
+        // also be skipped — closing it would tear down the active modal.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(10, "notepad.exe", "Untitled - Notepad");
+        let mut modal = make_entry(11, "notepad.exe", "Save As");
+        modal.info.is_owned = true;
+        modal.info.disables_owner = true;
+        // Same PID — they belong to the same process instance.
+        modal.pid = parent.pid;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, modal]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_out_of_process_modal_shields_owner() {
+        // Some Win32 modals are hosted in a different process than their
+        // owner (shell-hosted picker dialogs, security prompts). The shield
+        // must cover the owner's PID, not just the dialog's.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Close,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(30, "notepad.exe", "Untitled - Notepad");
+        // Modal lives in a different process (different pid) but reports the
+        // parent's pid as owner_pid.
+        let mut modal = make_entry(31, "PickerHost.exe", "Save As");
+        modal.info.is_owned = true;
+        modal.info.disables_owner = true;
+        modal.info.owner_pid = Some(parent.pid);
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, modal]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        assert!(mock.get_closed().is_empty());
+        assert!(mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_parent_acted_on_with_floating_helper() {
+        // An owned window that does NOT disable its parent (find/replace,
+        // color picker, tool palette) must not shield the parent from idle
+        // actions — Windows leaves the parent fully clickable.
+        let config = make_config(
+            vec![AppRule {
+                process: "notepad.exe".into(),
+                timeout_mins: 0,
+                action: Action::Minimize,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        let parent = make_entry(20, "notepad.exe", "Untitled - Notepad");
+        let mut helper = make_entry(21, "notepad.exe", "Find");
+        helper.info.is_owned = true;
+        helper.info.disables_owner = false;
+        helper.pid = parent.pid;
+
+        mock.set_foreground(Some("other.exe"));
+        mock.set_windows(vec![parent, helper]);
+        timestamps.lock().unwrap().insert(
+            "notepad.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        // Prime the idle clock so timeout=0 acts on the second poll.
+        monitor.poll();
+        monitor.poll();
+
+        assert!(!mock.get_minimized().is_empty());
+    }
+
+    #[test]
+    fn test_foreground_hwnd_skips_action() {
+        // Two windows share a process name. The currently-foreground HWND must
+        // not be acted on even though the process-name FG check could (e.g. if
+        // get_foreground_process resolves to a different host's name).
+        let config = make_config(
+            vec![AppRule {
+                process: "chrome.exe".into(),
+                timeout_mins: 0,
+                action: Action::Minimize,
+                enabled: true,
+                icon: None,
+                customized: false,
+            }],
+            vec![],
+        );
+        let (mut monitor, mock, _, _, timestamps) = setup(config);
+
+        // Foreground process resolves to something different (simulating a
+        // host process whose name differs from the window's own process name).
+        mock.set_foreground(Some("other.exe"));
+        mock.set_foreground_hwnd(42);
+        mock.set_windows(vec![make_entry(42, "chrome.exe", "Active tab")]);
+        timestamps.lock().unwrap().insert(
+            "chrome.exe".to_string(),
+            Instant::now() - Duration::from_secs(9999),
+        );
+        monitor.poll();
+
+        // HWND-level check should have spared it.
+        assert!(mock.get_minimized().is_empty());
     }
 
     #[test]

@@ -121,12 +121,17 @@ fn main() {
         }
     }
 
-    // Populate GUI from config
-    update_gui_from_config(
-        &window,
-        &config.read().unwrap(),
-        &search_state.read().unwrap(),
-    );
+    // Populate GUI from config. If either lock is poisoned (e.g. a previous
+    // panicking thread held them) keep the daemon alive with safe fallbacks
+    // rather than crashing the tray.
+    {
+        let cfg = config.read().map(|g| (*g).clone()).unwrap_or_else(|_| {
+            log::error!("Config lock poisoned on startup — using defaults for initial GUI");
+            Config::default_config()
+        });
+        let query = search_state.read().map(|s| s.clone()).unwrap_or_default();
+        update_gui_from_config(&window, &cfg, &query);
+    }
 
     // Wire up GUI callbacks
     setup_gui_callbacks(
