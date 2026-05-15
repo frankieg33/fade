@@ -47,10 +47,11 @@ Add `Win32_Graphics_Gdi` to the `windows` crate feature list in `Cargo.toml`
 if `RedrawWindow` is not already pulled in (it currently is — verify).
 
 In `src/main.rs::force_repaint`, after `request_redraw()`, get the HWND from
-the Slint window via `raw_window_handle_06` and call `invalidate_hwnd`. The
-Slint API for this is `w.window().window_handle().window_handle()` returning
-`Result<WindowHandle, _>`; match on `WindowHandle::Win32(h)` and pass
-`HWND(h.hwnd.get() as _)`.
+the Slint window via `raw-window-handle` 0.6 and call `invalidate_hwnd`. The
+Slint API for this is `w.window().window_handle()` returning a
+`Result<WindowHandle, _>`. `WindowHandle` is a wrapper around the
+`RawWindowHandle` enum, so match on `handle.as_raw()` and pull out
+`RawWindowHandle::Win32(h)`, then pass `HWND(h.hwnd.get() as _)`.
 
 Gate the HWND extraction with `#[cfg(target_os = "windows")]` so the Linux
 test build keeps working.
