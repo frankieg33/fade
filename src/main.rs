@@ -23,9 +23,9 @@ use winapi::Win32Api;
 slint::include_modules!();
 
 /// Sentinel-property bumps cycle through this range. The Slint view turns
-/// `redraw_tick` into an opacity (`tick * 0.0001 + 0.0001`), so values past
-/// ~10k saturate and stop being treated as real changes. 1000 stays well
-/// below saturation while every bump still produces a unique value.
+/// `redraw_tick` into an opacity on the full-bleed backdrop (`1.0 - tick *
+/// 0.000001`); 1000 distinct values stay safely within f32 precision and
+/// the resulting 0..0.001 opacity delta is invisible (bg-on-bg blend).
 const REDRAW_TICK_MODULO: i32 = 1000;
 
 /// Delay before the follow-up repaint after `w.show()`. Long enough for
@@ -33,8 +33,10 @@ const REDRAW_TICK_MODULO: i32 = 1000;
 const POST_SHOW_REPAINT_DELAY_MS: u64 = 50;
 
 /// Bump the `redraw_tick` sentinel and ask the window to redraw. The
-/// property change is what marks the window dirty for the Slint software
-/// renderer — request_redraw on its own is not enough after a long hide.
+/// property change dirties the full-bleed backdrop in Slint's damage
+/// tracker, forcing the software renderer to re-rasterize the entire
+/// window — request_redraw on its own does not, and an earlier 1px
+/// sentinel only invalidated a 1px tile while leaving the rest stale.
 fn force_repaint(w: &SettingsWindow) {
     // wrapping_add defends against the (unreachable but cheap-to-prevent)
     // case where the property was set out of band to a value near i32::MAX.
