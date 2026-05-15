@@ -314,7 +314,13 @@ export component SettingsWindow inherits Window {
     // window paints partially. The Window's background is also FadeTheme.bg,
     // so any opacity in the bound range alpha-blends bg-on-bg → no visible
     // change. tick * 0.000001 keeps each step well within f32 precision.
+    //
+    // width/height: 100% are load-bearing — a bare Rectangle as a direct
+    // Window child uses its preferred size (0×0) and the damage region
+    // would collapse to nothing.
     Rectangle {
+        width: 100%;
+        height: 100%;
         background: FadeTheme.bg;
         opacity: 1.0 - root.redraw-tick * 0.000001;
     }
