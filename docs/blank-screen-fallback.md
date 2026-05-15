@@ -55,10 +55,12 @@ if `RedrawWindow` is not already pulled in (it currently is — verify).
 
 In `src/main.rs::force_repaint`, after `request_redraw()`, get the HWND from
 the Slint window via `raw-window-handle` 0.6 and call `invalidate_hwnd`. The
-Slint API for this is `w.window().window_handle()` returning a
-`Result<WindowHandle, _>`. `WindowHandle` is a wrapper around the
-`RawWindowHandle` enum, so match on `handle.as_raw()` and pull out
-`RawWindowHandle::Win32(h)`, then pass `HWND(h.hwnd.get() as *mut _)`.
+chain in Slint 1.11 is `w.window().window_handle()` (returns
+`&slint::WindowHandle`), then `.window_handle()` again on that (provided by
+the `HasWindowHandle` trait) returning a
+`Result<raw_window_handle::WindowHandle, _>`. The inner `WindowHandle` wraps
+the `RawWindowHandle` enum, so call `.as_raw()` on it, match
+`RawWindowHandle::Win32(h)`, and pass `HWND(h.hwnd.get() as *mut _)`.
 
 Gate the HWND extraction with `#[cfg(target_os = "windows")]` so the Linux
 test build keeps working.
