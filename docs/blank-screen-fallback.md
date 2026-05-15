@@ -36,9 +36,16 @@ In `src/winapi.rs`, add a thin helper:
 ```rust
 #[cfg(target_os = "windows")]
 pub fn invalidate_hwnd(hwnd: windows::Win32::Foundation::HWND) {
-    use windows::Win32::Graphics::Gdi::{RedrawWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE};
+    use windows::Win32::Graphics::Gdi::{
+        RedrawWindow, HRGN, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE,
+    };
     unsafe {
-        let _ = RedrawWindow(Some(hwnd), None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        let _ = RedrawWindow(
+            hwnd,
+            None,
+            HRGN::default(),
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+        );
     }
 }
 ```
@@ -51,7 +58,7 @@ the Slint window via `raw-window-handle` 0.6 and call `invalidate_hwnd`. The
 Slint API for this is `w.window().window_handle()` returning a
 `Result<WindowHandle, _>`. `WindowHandle` is a wrapper around the
 `RawWindowHandle` enum, so match on `handle.as_raw()` and pull out
-`RawWindowHandle::Win32(h)`, then pass `HWND(h.hwnd.get() as _)`.
+`RawWindowHandle::Win32(h)`, then pass `HWND(h.hwnd.get() as *mut _)`.
 
 Gate the HWND extraction with `#[cfg(target_os = "windows")]` so the Linux
 test build keeps working.
